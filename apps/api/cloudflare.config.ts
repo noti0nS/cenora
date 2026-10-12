@@ -5,6 +5,8 @@ export default defineConfig(({ mode }) => ({
     name: mode === 'staging' ? 'cenora-staging' : 'cenora',
     entrypoint: './src/index.ts',
     compatibilityDate: '2026-10-11',
+    workersDev: true,
+    domains: mode === 'development' || mode === 'staging' ? [] : ['cenora.club'],
     assets: {
       htmlHandling: 'auto-trailing-slash',
       notFoundHandling: '404-page',

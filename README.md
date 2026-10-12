@@ -95,6 +95,9 @@ The deployment dry run needs no Cloudflare credentials and does not publish the 
 
 ## Deploy with Cloudflare `cf`
 
+Production serves `https://cenora.club` through a Worker custom domain. The
+`https://cenora.joselucas0303.workers.dev` address remains available as a fallback.
+
 Production is configured for the `cenora` Worker and D1 database
 `d2c212f4-8d89-4f78-b72e-f0a0befa6a74`. After Cloudflare authentication, run
 `pnpm deploy` to publish updates. `D1_DATABASE_ID` can override the configured
