@@ -6,7 +6,6 @@ body {
 h1,
 h2,
 h3,
-.wordmark-text,
 .kind-label,
 .card-title,
 .dial-number,
@@ -20,18 +19,22 @@ h3,
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: var(--ink);
-}
-.wordmark-text {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.045em;
-}
-.clapper {
-  color: var(--ink);
   flex: none;
-  cursor: pointer;
+}
+.brand-artwork {
+  display: block;
+  color: var(--ink);
+  overflow: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-ribbon,
+  .brand-leaves {
+    transform: none !important;
+  }
+}
+.carrot-mark {
+  flex: none;
+  object-fit: contain;
 }
 .access-card .wordmark {
   margin-bottom: 56px;
@@ -442,7 +445,7 @@ h3,
   gap: 14px;
   padding: 72px 0;
 }
-.empty-state .clapper {
+.empty-state .carrot-mark {
   margin-bottom: 10px;
 }
 .empty-state .button:not(.secondary) {

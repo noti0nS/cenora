@@ -41,7 +41,7 @@ import { api, json, errorMessage, RequestError, score } from '@/lib/api';
 import { Dropdown, MenuItem, Separator, Button } from './ui';
 import { Access } from './access';
 import { Poster } from './poster';
-import { Wordmark, ClapperMark } from './brand';
+import { Wordmark, CarrotMark } from './brand';
 import { TitleStage } from './title-stage';
 import { AddMedia } from './add-media';
 import { SettingsDialog } from './settings';
@@ -298,7 +298,7 @@ function App() {
       />
       {session.isPending ? (
         <div className="initial-loading">
-          <ClapperMark size={56} />
+          <CarrotMark size={56} />
           <span className="sr-only">Carregando Cenora</span>
         </div>
       ) : session.error ? (
@@ -529,7 +529,7 @@ function App() {
               </>
             ) : (
               <div className="empty-state">
-                <ClapperMark size={64} />
+                <CarrotMark size={64} />
                 <h2>
                   {filtered || mine ? 'Nada por aqui com esse filtro.' : kindCopy[kind].empty}
                 </h2>

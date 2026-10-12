@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   title: 'Cenora · filmes e séries em boa companhia',
   description: 'A estante de filmes e séries da sua turma: assista, acompanhe e dê nota.',
   robots: { index: false, follow: false },
+  icons: {
+    icon: { url: '/favicon.svg', type: 'image/svg+xml', sizes: 'any' },
+  },
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
