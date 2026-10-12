@@ -72,7 +72,14 @@ export async function renderShareCard(card: ShareCard): Promise<Blob> {
     document.fonts.load(`700 28px ${body}`),
   ]).catch(() => undefined);
   const [poster, logo] = await Promise.all([
-    card.posterUrl ? loadImage(card.posterUrl, true) : Promise.resolve(null),
+    card.posterUrl
+      ? loadImage(
+          card.posterUrl.startsWith('https://image.tmdb.org/')
+            ? `/api/media/poster?url=${encodeURIComponent(card.posterUrl.replace('/w342/', '/w500/'))}`
+            : card.posterUrl,
+          true,
+        )
+      : Promise.resolve(null),
     loadImage('/cenora-logo-dark.svg'),
   ]);
   const canvas = document.createElement('canvas');

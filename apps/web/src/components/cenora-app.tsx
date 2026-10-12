@@ -224,14 +224,16 @@ function App() {
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
-  // What the group (or, in "Só os meus", this person) is watching, movies and shows.
-  const watchingNow = useQuery({
-    queryKey: ['media', 'watching', mine],
+  // Titles in progress: the group's, and the ones this person is watching themselves.
+  const progress = (mineOnly: boolean) => ({
+    queryKey: ['media', 'watching', mineOnly],
     enabled: Boolean(session.data?.member),
-    queryFn: () => api<Page>(`/media?status=watching&sort=recent${mine ? '&mine=true' : ''}`),
+    queryFn: () => api<Page>(`/media?status=watching&sort=recent${mineOnly ? '&mine=true' : ''}`),
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
+  const watchingGroup = useQuery(progress(false));
+  const watchingMine = useQuery(progress(true));
   const unauthorized = [counts.error, media.error].some(
     (e) => e instanceof RequestError && e.status === 401,
   );
@@ -297,7 +299,13 @@ function App() {
   }, [media.hasNextPage, media.isFetchingNextPage, media.fetchNextPage, items.length]);
   const total = counts.data?.[kind] ?? 0;
   const filtered = Boolean(q || activeStatus);
-  const watchingItems = !filtered ? (watchingNow.data?.items ?? []) : [];
+  const mineIds = new Set((watchingMine.data?.items ?? []).map((item) => item.id));
+  const watchingItems = filtered
+    ? []
+    : [
+        ...(watchingMine.data?.items ?? []),
+        ...(watchingGroup.data?.items ?? []).filter((item) => !mineIds.has(item.id)),
+      ];
   return (
     <>
       <Toaster
@@ -501,21 +509,28 @@ function App() {
             </div>
           </div>
           {watchingItems.length > 0 && (
-            <section
-              className="watching-now"
-              aria-label={mine ? 'Você está assistindo' : 'Assistindo agora'}
-            >
-              <h2>{mine ? 'Você está assistindo' : 'Assistindo agora'}</h2>
+            <section className="watching-now" aria-label="Assistindo agora">
+              <h2>Assistindo agora</h2>
               <ul className="watching-strip">
-                {watchingItems.map((item, index) => (
-                  <PosterCard
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    mine={mine}
-                    compact
-                    onOpen={() => navigate({ media: item.id })}
-                  />
+                {watchingItems.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={`orb ${mineIds.has(item.id) ? 'mine' : ''}`}
+                      aria-label={`Continuar ${item.title}`}
+                      onClick={() => navigate({ media: item.id })}
+                    >
+                      <span className="orb-art">
+                        {item.posterUrl ? (
+                          <img src={item.posterUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span>{item.title.charAt(0)}</span>
+                        )}
+                      </span>
+                      <span className="orb-title">{item.title}</span>
+                      <small>{mineIds.has(item.id) ? 'Você' : 'Grupo'}</small>
+                    </button>
+                  </li>
                 ))}
               </ul>
             </section>
@@ -654,13 +669,11 @@ function PosterCard({
   item,
   index,
   mine,
-  compact = false,
   onOpen,
 }: {
   item: Media;
   index: number;
   mine: boolean;
-  compact?: boolean;
   onOpen: () => void;
 }) {
   const px = useMotionValue(0.5);
@@ -695,7 +708,7 @@ function PosterCard({
     >
       <m.button
         className={`card kind-${item.kind}`}
-        aria-label={`${compact ? 'Continuar' : 'Abrir'} ${item.title}`}
+        aria-label={`Abrir ${item.title}`}
         style={{ rotateX, rotateY, transformPerspective: 900 }}
         whileTap={{ scale: 0.97 }}
         onPointerMove={(e) => {
@@ -713,7 +726,7 @@ function PosterCard({
         }}
       >
         <span className="card-art">
-          <Poster media={item} layoutId={compact ? undefined : `poster-${item.id}`} />
+          <Poster media={item} layoutId={`poster-${item.id}`} />
           <m.span className="glare" style={{ backgroundImage: glare }} aria-hidden="true" />
           {state === 'watched' && (
             <span className="badge done" aria-hidden="true">

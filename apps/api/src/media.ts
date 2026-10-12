@@ -182,6 +182,25 @@ mediaRoutes.get('/counts', async (c) => {
   return c.json(counts);
 });
 /** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
+/** Same-origin copy of a catalog poster, so the share card canvas is not tainted by CORS. */
+mediaRoutes.get('/poster', async (c) => {
+  const url = c.req.query('url') ?? '';
+  if (!url.startsWith('https://image.tmdb.org/t/p/') || url.includes('..'))
+    return c.json({ error: 'Pôster indisponível.' }, 400);
+  try {
+    const res = await fetch(url);
+    if (!res.ok || !res.headers.get('content-type')?.startsWith('image/'))
+      return c.json({ error: 'Pôster indisponível.' }, 404);
+    return new Response(res.body, {
+      headers: {
+        'content-type': res.headers.get('content-type')!,
+        'cache-control': 'private, max-age=86400',
+      },
+    });
+  } catch {
+    return c.json({ error: 'Pôster indisponível.' }, 502);
+  }
+});
 mediaRoutes.get('/spin', async (c) => {
   const kind = c.req.query('kind') === 'tv' ? 'tv' : 'movie';
   const mine = c.req.query('mine') === 'true';

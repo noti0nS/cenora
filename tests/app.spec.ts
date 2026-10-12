@@ -403,7 +403,7 @@ test('titles the group is watching, movies and shows, get a compact "Assistindo 
 }) => {
   await page.goto('/');
   await expect(page.locator('.card')).toHaveCount(30);
-  await expect(page.getByRole('region', { name: 'Assistindo agora' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continuar A Origem' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   const stage = page.getByRole('dialog', { name: 'A Origem' });
   const saved = savedAs(page, '"status":"watching"');
@@ -421,10 +421,7 @@ test('titles the group is watching, movies and shows, get a compact "Assistindo 
   await page.getByRole('tab', { name: /Séries/ }).click();
   await expect(section.getByRole('button', resume)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Só os meus' }).click();
-  const mineSection = page.getByRole('region', { name: 'Você está assistindo' });
-  await expect(mineSection.getByRole('button', resume)).toBeVisible();
-  await page.getByRole('button', { name: 'Só os meus' }).click();
+  await expect(section.getByRole('button', resume)).toContainText('Você');
   await page.getByRole('tab', { name: /Filmes/ }).click();
   await section.getByRole('button', resume).click();
   const back = savedAs(page, '"status":"planned"');
@@ -442,5 +439,5 @@ test('titles the group is watching, movies and shows, get a compact "Assistindo 
     .click();
   await mineBack;
   await page.keyboard.press('Escape');
-  await expect(section).toHaveCount(0);
+  await expect(section.getByRole('button', resume)).toHaveCount(0);
 });
