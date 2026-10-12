@@ -15,6 +15,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:8788');
   await expect(page.getByRole('heading', { name: 'Boas histórias. Boa companhia.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Criar meu clube' }).click();
   await page.getByLabel('Como podemos chamar você?').fill('Ana');
   await expect(page.getByLabel('Código de configuração')).toHaveCount(0);
   await expect(page.getByLabel('Código do clube')).toHaveCount(0);
@@ -290,6 +291,7 @@ test('a new creator gets a private code and friends join only that club', async 
   try {
     const creator = await creatorContext.newPage();
     await creator.goto('http://127.0.0.1:8788');
+    await creator.getByRole('button', { name: 'Criar meu clube' }).click();
     await creator.getByLabel('Como podemos chamar você?').fill('Bia');
     await expect(creator.getByLabel('Código do clube')).toHaveCount(0);
     await creator.getByRole('button', { name: 'Criar meu clube' }).click();
@@ -440,4 +442,73 @@ test('titles the group is watching, movies and shows, get a compact "Assistindo 
   await mineBack;
   await page.keyboard.press('Escape');
   await expect(section.getByRole('button', resume)).toHaveCount(0);
+});
+
+/** Lê o código de 6 dígitos do outbox de desenvolvimento do Worker de teste. */
+async function outboxCodeFor(email: string) {
+  const response = await fetch('http://127.0.0.1:8788/api/dev/outbox');
+  const data = (await response.json()) as { messages: { to_email: string; text: string }[] };
+  const message = data.messages.find((item) => item.to_email === email);
+  return message!.text.match(/(\d{6})/)![1];
+}
+test('signs in with an email code, creates a club, and switches between clubs', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto('http://127.0.0.1:8788');
+    await page.getByLabel('Seu e-mail').fill('zoe@cenora.test');
+    await page.getByRole('button', { name: 'Enviar código' }).click();
+    await page.getByLabel('Código de 6 dígitos').fill(await outboxCodeFor('zoe@cenora.test'));
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+    await page.getByRole('button', { name: 'Criar um clube novo' }).click();
+    await page.getByLabel('Como podemos chamar você?').fill('Zoe');
+    await page.getByRole('button', { name: 'Criar meu clube' }).click();
+    await expect(page.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Perfil de Zoe' }).click();
+    await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
+    await page.getByText('Meus clubes').click();
+    await page.getByLabel('Criar um clube novo').fill('Zoe B');
+    await page.getByRole('button', { name: 'Criar clube' }).click();
+    await expect(page.getByText('Clube de Zoe B foi criado.')).toBeVisible();
+    await page.getByRole('button', { name: 'Fechar' }).click();
+    await page.getByRole('button', { name: 'Perfil de Zoe' }).click();
+    await page.getByRole('menuitem', { name: /Clube de Zoe B/ }).click();
+    await expect(page.getByRole('button', { name: 'Perfil de Zoe B' })).toBeVisible();
+    await page.getByRole('button', { name: 'Perfil de Zoe B' }).click();
+    await expect(page.getByRole('menuitem', { name: /Clube de Zoe B/ })).toContainText('atual');
+    await expect(page.getByRole('menuitem', { name: /Clube de Zoe$/ })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+test('an owner claim code opens a scoped session with a clear notice', async ({
+  browser,
+  page,
+}) => {
+  const members = (await (
+    await page.request.get('http://127.0.0.1:8788/api/club/members')
+  ).json()) as { id: string }[];
+  const claimed = (await (
+    await page.request.post(`http://127.0.0.1:8788/api/club/members/${members[0].id}/claim`, {
+      headers: { Origin: 'http://127.0.0.1:8788' },
+    })
+  ).json()) as { claimCode: string };
+  expect(claimed.claimCode).toMatch(/^[a-f0-9]{48}$/);
+  const context = await browser.newContext();
+  try {
+    const fresh = await context.newPage();
+    await fresh.goto('http://127.0.0.1:8788');
+    await fresh.getByRole('button', { name: 'Tenho um código de convite' }).click();
+    await fresh.getByRole('button', { name: 'Tenho um código de reacesso' }).click();
+    await fresh.getByLabel('Código de reacesso').fill(claimed.claimCode);
+    await fresh.getByRole('button', { name: 'Abrir meu acesso' }).click();
+    await expect(fresh.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await expect(fresh.getByText(/Este acesso vale só para este clube/)).toBeVisible();
+    await fresh.getByRole('button', { name: 'Perfil de Ana' }).click();
+    await expect(fresh.getByRole('menuitem', { name: /Clube de Zoe B/ })).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
 });

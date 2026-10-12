@@ -414,7 +414,6 @@ auth.post('/email/verify', async (c) => {
       .run();
     throw invalid();
   }
-  await clear();
   if (input.mode === 'attach') {
     const session = await resolveSession(c);
     if (!session?.user)
@@ -425,10 +424,12 @@ auth.post('/email/verify', async (c) => {
       .bind(input.email)
       .first<{ id: string; email: string | null }>();
     if (owner && owner.id !== session.user.id) {
+      // Sem merge, o código continua valendo para tentar de novo com merge=true.
       if (!input.merge)
         throw new ApiError(409, 'EMAIL_TAKEN', 'Este e-mail já está vinculado a outra conta.');
       requireUnscoped(session);
       await mergeIdentities(c, session.user.id, owner.id);
+      await clear();
       const options = await memberships(c, owner.id);
       return c.json({
         user: owner,
@@ -445,6 +446,7 @@ auth.post('/email/verify', async (c) => {
         c.get('sessionHash'),
       ),
     ]);
+    await clear();
     const options = await memberships(c, session.user.id);
     return c.json({
       user: { id: session.user.id, email: input.email },
@@ -453,6 +455,7 @@ auth.post('/email/verify', async (c) => {
       clubs: options.map(toClubOption),
     });
   }
+  await clear();
   let user = await c.env.DB.prepare('SELECT id,email FROM users WHERE normalized_email=?')
     .bind(input.email)
     .first<{ id: string; email: string | null }>();

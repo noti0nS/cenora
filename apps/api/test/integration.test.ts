@@ -1506,15 +1506,19 @@ describe('scoped re-access and identity linking', () => {
       ana.cookie,
     );
     expect(started.status).toBe(200);
+    const code = await outboxCode('merge@example.com');
+    const taken = await request(
+      '/auth/email/verify',
+      'POST',
+      { email: 'merge@example.com', code, mode: 'attach' },
+      ana.cookie,
+    );
+    expect(taken.status).toBe(409);
+    expect(((await taken.json()) as any).error.code).toBe('EMAIL_TAKEN');
     const merged = await request(
       '/auth/email/verify',
       'POST',
-      {
-        email: 'merge@example.com',
-        code: await outboxCode('merge@example.com'),
-        mode: 'attach',
-        merge: true,
-      },
+      { email: 'merge@example.com', code, mode: 'attach', merge: true },
       ana.cookie,
     );
     expect(merged.status).toBe(200);

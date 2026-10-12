@@ -1450,3 +1450,80 @@ summary {
     transform: none;
   }
 }
+
+.turnstile-slot {
+  display: flex;
+  justify-content: center;
+}
+.menu-club {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.menu-club small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.settings-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.settings-block h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.club-options {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.club-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.club-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.club-option small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.scoped-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--muted);
+}
+.scoped-banner .text-button {
+  margin-left: auto;
+  white-space: nowrap;
+}
