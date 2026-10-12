@@ -112,16 +112,16 @@ clubRoutes.delete('/lists/:id/items/:mediaId', async (c) => {
 });
 
 clubRoutes.get('/members', async (c) => {
-  owner(c);
-  return c.json(
-    (
-      await c.env.DB.prepare(
-        'SELECT id,name,role,active,(user_id IS NOT NULL) linked FROM members WHERE club_id=? ORDER BY role DESC,name',
-      )
-        .bind(c.get('club').id)
-        .all()
-    ).results,
-  );
+  // Todos veem quem faz parte; só o dono sabe quem tem acesso próprio (conta).
+  const isOwner = c.get('member').role === 'owner';
+  const rows = (
+    await c.env.DB.prepare(
+      'SELECT id,name,role,active,(user_id IS NOT NULL) linked FROM members WHERE club_id=? AND active=1 ORDER BY role DESC,name',
+    )
+      .bind(c.get('club').id)
+      .all<{ id: string; name: string; role: 'owner' | 'member'; active: number; linked: number }>()
+  ).results;
+  return c.json(isOwner ? rows : rows.map(({ linked: _linked, ...row }) => row));
 });
 
 clubRoutes.post('/token', async (c) => {

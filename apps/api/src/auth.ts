@@ -38,6 +38,7 @@ type MembershipRow = {
   club_id: string;
   club_name: string;
   token_version: number;
+  member_count?: number;
 };
 type SessionRow = {
   user_id: string | null;
@@ -82,7 +83,7 @@ function sessionCookie(c: Context<AppEnv>, maxAge: number) {
 
 async function memberships(c: Context<AppEnv>, userId: string) {
   const rows = await c.env.DB.prepare(
-    'SELECT m.id member_id,m.name member_name,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.user_id=? AND m.active=1 ORDER BY m.created_at,m.name',
+    'SELECT m.id member_id,m.name member_name,m.role,c.id club_id,c.name club_name,c.token_version,(SELECT COUNT(*) FROM members x WHERE x.club_id=c.id AND x.active=1) member_count FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.user_id=? AND m.active=1 ORDER BY m.created_at,m.name',
   )
     .bind(userId)
     .all<MembershipRow>();
@@ -93,6 +94,7 @@ const toClubOption = (row: MembershipRow): ClubOption => ({
   clubId: row.club_id,
   name: row.club_name,
   role: row.role,
+  memberCount: row.member_count ?? 1,
 });
 const toMember = (row: MembershipRow): Member => ({
   id: row.member_id,

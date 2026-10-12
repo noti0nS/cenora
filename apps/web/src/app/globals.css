@@ -1538,3 +1538,167 @@ summary {
   margin-left: auto;
   white-space: nowrap;
 }
+
+.club-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 190px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+.club-chip:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+.club-chip svg {
+  flex: none;
+}
+.club-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal.clubs-modal {
+  width: min(calc(100% - 40px), 780px);
+}
+.clubs-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.club-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.club-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+.club-card:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.club-card.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.club-card.add {
+  border-style: dashed;
+}
+.club-card-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.club-card-text small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.club-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.club-detail h3 {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+}
+.roster {
+  display: flex;
+  flex-direction: column;
+}
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.roster-row:last-child {
+  border-bottom: 0;
+}
+.roster-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.roster-name small {
+  display: block;
+  min-height: 1em;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.roster-actions {
+  display: flex;
+  gap: 4px;
+}
+.roster-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .clubs-layout {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+  .club-list {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  .club-card {
+    flex: none;
+    width: 220px;
+    scroll-snap-align: start;
+  }
+  .roster-row {
+    flex-wrap: wrap;
+  }
+  .roster-actions {
+    margin-left: 39px;
+    width: 100%;
+  }
+}
+@media (max-width: 520px) {
+  .club-chip {
+    max-width: 120px;
+    padding: 8px 10px;
+  }
+}

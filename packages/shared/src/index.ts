@@ -194,6 +194,7 @@ export interface ClubOption {
   clubId: string;
   name: string;
   role: 'owner' | 'member';
+  memberCount: number;
 }
 export interface SessionState {
   user: SessionUser | null;

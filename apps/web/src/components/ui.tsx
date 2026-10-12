@@ -1,8 +1,8 @@
 'use client';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Menu from '@radix-ui/react-dropdown-menu';
-import { Children, cloneElement, isValidElement, useId } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { Children, cloneElement, isValidElement, useId, useState } from 'react';
+import { X, Loader2, KeyRound, Copy, Check } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import * as m from 'motion/react-m';
@@ -200,6 +200,39 @@ export function Segmented<T extends string>({
           <span className="segmented-label">{option.label}</span>
         </button>
       ))}
+    </div>
+  );
+}
+export function CodeReveal({
+  label,
+  value,
+  onDone,
+}: {
+  label: string;
+  value: string;
+  onDone: () => void;
+}) {
+  const [saved, setSaved] = useState(false);
+  return (
+    <div className="stack code-result">
+      <div className="success-mark">
+        <KeyRound size={22} />
+      </div>
+      <h3>{label}</h3>
+      <p className="muted-note">Guarde agora. O código aparece apenas desta vez.</p>
+      <code>{value}</code>
+      <Button className="secondary" onClick={() => copyCode(value)}>
+        <Copy size={15} />
+        Copiar código
+      </Button>
+      <label className="check-label">
+        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+        Guardei o código.
+      </label>
+      <Button disabled={!saved} onClick={onDone}>
+        Tudo certo
+        <Check size={15} />
+      </Button>
     </div>
   );
 }

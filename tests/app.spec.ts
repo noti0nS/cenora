@@ -358,7 +358,7 @@ test('a new creator gets a private code and friends join only that club', async 
       friend.getByRole('button', { name: 'Abrir Só no clube da Bia', exact: true }),
     ).toBeVisible();
     await friend.getByRole('button', { name: 'Perfil de Beto' }).click();
-    await expect(friend.getByText('Clube de Bia', { exact: true })).toBeVisible();
+    await expect(friend.getByRole('menu').getByText('Clube de Bia', { exact: true })).toBeVisible();
     await page.goto('/');
     await expect(page.locator('.card')).toHaveCount(30);
     await expect(
@@ -505,11 +505,12 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await page.getByRole('button', { name: 'Guardar na estante' }).click();
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
     await expect(page.locator('.shelf-intro')).toContainText('1 filme na estante');
-    await page.getByRole('button', { name: 'Perfil de Zoe' }).click();
-    await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
-    await page.getByText('Meus clubes').click();
-    await page.getByLabel('Criar um clube novo').fill('Zoe B');
-    await page.getByRole('button', { name: 'Criar clube' }).click();
+    await page.getByRole('button', { name: /^Clubes e participantes/ }).click();
+    await expect(page.getByRole('navigation', { name: 'Seus clubes' })).toBeVisible();
+    await page.getByRole('button', { name: /Criar, entrar ou trazer/ }).click();
+    await page.getByRole('button', { name: 'Criar clube', pressed: false }).click();
+    await page.getByLabel('Seu nome no novo clube').fill('Zoe B');
+    await page.locator('form').getByRole('button', { name: 'Criar clube' }).click();
     await expect(page.getByText('Clube de Zoe B foi criado.')).toBeVisible();
     await page.getByRole('button', { name: 'Fechar' }).click();
     await expect(page.getByRole('button', { name: 'Perfil de Zoe B' })).toBeVisible();

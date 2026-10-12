@@ -1264,6 +1264,26 @@ describe('guest identities on the same runtime', () => {
   });
 });
 describe('scoped re-access and identity linking', () => {
+  it('lists active participants to every member and exposes account state only to the owner', async () => {
+    const owner = await createClub('Chefe');
+    const friend = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Amigo', token: owner.clubToken },
+      '',
+    );
+    const friendCookie = friend.headers.get('set-cookie')!.split(';')[0];
+    const asOwner = (await (
+      await request('/club/members', 'GET', undefined, owner.cookie)
+    ).json()) as any[];
+    expect(asOwner.map((row) => row.name).sort()).toEqual(['Amigo', 'Chefe']);
+    expect(asOwner.every((row) => 'linked' in row)).toBe(true);
+    const asFriend = await request('/club/members', 'GET', undefined, friendCookie);
+    expect(asFriend.status).toBe(200);
+    const rows = (await asFriend.json()) as any[];
+    expect(rows).toHaveLength(2);
+    expect(rows.some((row) => 'linked' in row)).toBe(false);
+  });
   it('lets a signed-in account claim a profile without identity', async () => {
     const owner = await createClub('Dona');
     const guest = await request(

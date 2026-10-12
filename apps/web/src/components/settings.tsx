@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, KeyRound, RefreshCw, Shield, Copy, Check, Mail, Link2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { KeyRound, Shield, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Club, ClubOption, Member, SessionState } from '@cenora/shared';
+import type { Member, SessionState } from '@cenora/shared';
 import { api, json, errorMessage, RequestError } from '@/lib/api';
-import { Modal, Button, Field, copyCode, Segmented } from './ui';
+import { Modal, Button, Field, CodeReveal } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
 import { TurnstileField } from './turnstile-field';
 
@@ -163,26 +163,13 @@ export function SettingsDialog({
     [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState<{ label: string; run: () => Promise<void> } | null>(null),
     [code, setCode] = useState<{ label: string; value: string } | null>(null),
-    [saved, setSaved] = useState(false),
-    [linkMode, setLinkMode] = useState<'claim' | 'recovery'>('claim'),
-    [linkCode, setLinkCode] = useState(''),
-    [joinName, setJoinName] = useState(''),
-    [joinToken, setJoinToken] = useState(''),
-    [createName, setCreateName] = useState(''),
     [attaching, setAttaching] = useState(false);
-  const members = useQuery({
-    queryKey: ['members'],
-    queryFn: () => api<(Member & { active: number; linked: number })[]>('/club/members'),
-    enabled: open && member.role === 'owner',
-  });
   useEffect(() => {
     if (open) {
       setName(member.name);
       setConfirm(null);
       setCode(null);
-      setSaved(false);
       setAttaching(false);
-      setLinkCode('');
     }
   }, [open, member.name]);
   const refresh = () => {
@@ -217,7 +204,6 @@ export function SettingsDialog({
   };
   const showCode = (label: string, value: string) => {
     setCode({ label, value });
-    setSaved(false);
   };
   const recovery = () =>
     setConfirm({
@@ -226,15 +212,6 @@ export function SettingsDialog({
       run: async () => {
         const r = await api<{ recoveryCode: string }>('/auth/recovery-code', json('POST'));
         showCode('Seu código de recuperação', r.recoveryCode);
-      },
-    });
-  const rotate = () =>
-    setConfirm({
-      label:
-        'Mudar o código do clube? Seus amigos precisarão do novo código e dos códigos pessoais para entrar novamente.',
-      run: async () => {
-        const r = await api<{ clubToken: string }>('/club/token', json('POST'));
-        showCode('Novo código do clube · compartilhe com seus amigos', r.clubToken);
       },
     });
   const logoutAll = () =>
@@ -247,106 +224,15 @@ export function SettingsDialog({
         onClose();
       },
     });
-  const exportData = async () => {
-    await run(async () => {
-      const data = await api('/club/export');
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-      );
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `cenora-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast.success('Cópia exportada.');
-    });
-  };
-  const switchClub = (target: ClubOption) =>
-    run(async () => {
-      const data = await api<{ member: Member; club: Club }>(
-        '/auth/club',
-        json('POST', { memberId: target.memberId }),
-      );
-      qc.setQueryData<SessionState>(['session'], (old) =>
-        old ? { ...old, member: data.member, club: data.club } : old,
-      );
-      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
-      void qc.invalidateQueries({ queryKey: ['session'] });
-      toast.success(`Agora você está em ${data.club.name}.`);
-      onClose();
-    });
-  const join = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await run(async () => {
-      const data = await api<{ member: Member; club: Club }>(
-        '/auth/join',
-        json('POST', { name: joinName, token: joinToken.trim() }),
-      );
-      localStorage.setItem('watchlist:name', data.member.name);
-      refresh();
-      toast.success(`Você entrou em ${data.club.name}.`);
-      setJoinName('');
-      setJoinToken('');
-    });
-  };
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await run(async () => {
-      const data = await api<{ member: Member; club: Club }>(
-        '/auth/create',
-        json('POST', { name: createName }),
-      );
-      localStorage.setItem('watchlist:name', data.member.name);
-      refresh();
-      toast.success(`${data.club.name} foi criado.`);
-      setCreateName('');
-    });
-  };
-  const link = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await run(async () => {
-      await api(
-        linkMode === 'claim' ? '/auth/claim' : '/auth/link',
-        json(
-          'POST',
-          linkMode === 'claim' ? { code: linkCode.trim() } : { recoveryCode: linkCode.trim() },
-        ),
-      );
-      refresh();
-      toast.success('Perfil trazido para esta conta.');
-      setLinkCode('');
-    });
-  };
   return (
     <Modal
       open={open}
-      onClose={busy || (code && !saved) ? () => {} : onClose}
+      onClose={busy || code ? () => {} : onClose}
       title="Seu pequeno espaço"
       description="Um perfil simples, para histórias compartilhadas."
     >
       {code ? (
-        <div className="stack code-result">
-          <div className="success-mark">
-            <KeyRound size={22} />
-          </div>
-          <h3>{code.label}</h3>
-          <p className="muted-note">Guarde agora. O código aparece apenas desta vez.</p>
-          <code>{code.value}</code>
-          <Button className="secondary" onClick={() => copyCode(code.value)}>
-            <Copy size={15} />
-            Copiar código
-          </Button>
-          <label className="check-label">
-            <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-            Guardei o código.
-          </label>
-          <Button disabled={!saved} onClick={() => setCode(null)}>
-            Tudo certo
-            <Check size={15} />
-          </Button>
-        </div>
+        <CodeReveal label={code.label} value={code.value} onDone={() => setCode(null)} />
       ) : (
         <>
           <form className="stack" onSubmit={profile}>
@@ -413,196 +299,6 @@ export function SettingsDialog({
               </button>
             )}
           </div>
-          {user && (
-            <details className="disclosure">
-              <summary>Meus clubes</summary>
-              <div className="stack">
-                {session?.clubs.map((option) => (
-                  <div className="member-setting" key={option.memberId}>
-                    <span className="small-avatar">{option.name.charAt(0)}</span>
-                    <span>
-                      {option.name}
-                      {option.role === 'owner' && <small>Responsável</small>}
-                    </span>
-                    {option.memberId !== member.id && (
-                      <button
-                        className="text-button"
-                        disabled={busy || scoped}
-                        onClick={() => switchClub(option)}
-                      >
-                        Ir para este clube
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <form className="stack" onSubmit={join}>
-                  <Field label="Entrar com código de convite">
-                    <input
-                      placeholder="Código do clube"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={joinToken}
-                      onChange={(e) => setJoinToken(e.target.value)}
-                    />
-                    <input
-                      placeholder="Seu nome neste clube"
-                      autoComplete="nickname"
-                      value={joinName}
-                      onChange={(e) => setJoinName(e.target.value)}
-                    />
-                  </Field>
-                  <Button
-                    type="submit"
-                    className="secondary"
-                    busy={busy}
-                    disabled={joinToken.trim().length < 12 || joinName.trim().length < 2}
-                  >
-                    Entrar no clube
-                  </Button>
-                </form>
-                <form className="stack" onSubmit={create}>
-                  <Field label="Criar um clube novo">
-                    <input
-                      placeholder="Seu nome no novo clube"
-                      autoComplete="nickname"
-                      value={createName}
-                      onChange={(e) => setCreateName(e.target.value)}
-                    />
-                  </Field>
-                  <Button
-                    type="submit"
-                    className="secondary"
-                    busy={busy}
-                    disabled={createName.trim().length < 2}
-                  >
-                    Criar clube
-                  </Button>
-                </form>
-              </div>
-            </details>
-          )}
-          {user && (
-            <details className="disclosure">
-              <summary>Trazer um perfil ou acesso antigo</summary>
-              <div className="stack">
-                <Segmented
-                  value={linkMode}
-                  onChange={setLinkMode}
-                  label="O que você quer trazer"
-                  options={[
-                    { value: 'claim', label: 'Código do dono' },
-                    { value: 'recovery', label: 'Código de recuperação' },
-                  ]}
-                />
-                <form className="stack" onSubmit={link}>
-                  <Field
-                    label={linkMode === 'claim' ? 'Código de reacesso' : 'Código de recuperação'}
-                    hint={
-                      linkMode === 'claim'
-                        ? 'Peça ao dono do clube em Configurações › Reacesso. O perfil sem e-mail passa a ser da sua conta.'
-                        : 'O código do perfil ou do aparelho antigo. Basta ele, sem nome nem código do clube.'
-                    }
-                  >
-                    <input
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={linkCode}
-                      onChange={(e) => setLinkCode(e.target.value)}
-                    />
-                  </Field>
-                  <Button
-                    type="submit"
-                    className="secondary"
-                    busy={busy}
-                    disabled={linkCode.trim().length < 12}
-                  >
-                    <Link2 size={15} />
-                    Trazer para esta conta
-                  </Button>
-                </form>
-              </div>
-            </details>
-          )}
-          {member.role === 'owner' && (
-            <details className="disclosure owner-settings">
-              <summary>Configurações do clube</summary>
-              <div className="stack">
-                <button className="settings-action" disabled={busy} onClick={rotate}>
-                  <RefreshCw size={16} />
-                  Mudar o código de acesso
-                </button>
-                <button className="settings-action" disabled={busy} onClick={exportData}>
-                  <Download size={16} />
-                  Exportar uma cópia em JSON
-                </button>
-                <h4>Quem faz parte</h4>
-                {members.isPending ? (
-                  <p className="muted-note">Carregando perfis…</p>
-                ) : members.error ? (
-                  <p role="alert" className="error-note">
-                    {errorMessage(members.error)}
-                  </p>
-                ) : (
-                  members.data
-                    ?.filter((m) => m.active)
-                    .map((m) => (
-                      <div className="member-setting" key={m.id}>
-                        <span className="small-avatar">{m.name.charAt(0)}</span>
-                        <span>
-                          {m.name}
-                          {m.role === 'owner' && <small>Responsável</small>}
-                          {Boolean(m.linked) && <small>Com acesso próprio</small>}
-                        </span>
-                        {m.id !== member.id && (
-                          <div>
-                            <button
-                              className="text-button"
-                              disabled={busy}
-                              onClick={() =>
-                                setConfirm({
-                                  label: m.linked
-                                    ? `Gerar um código de reacesso para ${m.name}? Ele abre só este clube, por 7 dias, uma vez.`
-                                    : `Gerar um código de reacesso para ${m.name}? Quem tiver uma conta pode usá-lo em Configurações para trazer este perfil, por 7 dias, uma vez.`,
-                                  run: async () => {
-                                    const r = await api<{ claimCode: string }>(
-                                      `/club/members/${m.id}/claim`,
-                                      json('POST'),
-                                    );
-                                    showCode(
-                                      `Reacesso de ${m.name} · envie para a pessoa`,
-                                      r.claimCode,
-                                    );
-                                  },
-                                })
-                              }
-                            >
-                              Reacesso
-                            </button>
-                            <button
-                              className="text-button danger"
-                              disabled={busy}
-                              onClick={() =>
-                                setConfirm({
-                                  label: `Remover ${m.name} do clube? O perfil não poderá entrar novamente.`,
-                                  run: async () => {
-                                    await api(`/club/members/${m.id}`, json('DELETE'));
-                                    await qc.invalidateQueries({ queryKey: ['members'] });
-                                    await qc.invalidateQueries({ queryKey: ['media'] });
-                                    toast.success('Perfil removido.');
-                                  },
-                                })
-                              }
-                            >
-                              Remover
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                )}
-              </div>
-            </details>
-          )}
           {confirm && (
             <div className="confirm-box">
               <p>{confirm.label}</p>

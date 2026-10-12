@@ -36,6 +36,7 @@ import {
   Star,
   Dices,
   ShieldAlert,
+  Users,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
@@ -47,6 +48,7 @@ import { Wordmark, CarrotMark } from './brand';
 import { TitleStage } from './title-stage';
 import { AddMedia } from './add-media';
 import { SettingsDialog } from './settings';
+import { ClubsDialog } from './clubs-panel';
 import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
 
@@ -141,6 +143,7 @@ function App() {
     [sort, setSort] = useState('recent');
   const [add, setAdd] = useState(false),
     [settings, setSettings] = useState(false),
+    [clubsOpen, setClubsOpen] = useState(false),
     [importing, setImporting] = useState(false),
     [spinning, setSpinning] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -424,6 +427,14 @@ function App() {
                   </button>
                 )}
               </div>
+              <button
+                className="club-chip"
+                aria-label={`Clubes e participantes. Clube atual: ${session.data?.club?.name ?? ''}`}
+                onClick={() => setClubsOpen(true)}
+              >
+                <Users size={15} />
+                <span>{session.data?.club?.name}</span>
+              </button>
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
                 <span>Adicionar</span>
@@ -463,18 +474,15 @@ function App() {
                   {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}Usar tema{' '}
                   {theme === 'light' ? 'escuro' : 'claro'}
                 </MenuItem>
+                <MenuItem onSelect={() => setClubsOpen(true)}>
+                  <Users size={16} />
+                  Clubes e participantes
+                </MenuItem>
                 {member.role === 'owner' && (
-                  <>
-                    <Separator />
-                    <MenuItem onSelect={() => setImporting(true)}>
-                      <ArrowUpRight size={16} />
-                      Importar títulos
-                    </MenuItem>
-                    <MenuItem onSelect={() => setSettings(true)}>
-                      <Settings size={16} />
-                      Configurações do clube
-                    </MenuItem>
-                  </>
+                  <MenuItem onSelect={() => setImporting(true)}>
+                    <ArrowUpRight size={16} />
+                    Importar títulos
+                  </MenuItem>
                 )}
                 <Separator />
                 <MenuItem onSelect={logout}>
@@ -705,6 +713,17 @@ function App() {
             onProfile={(updated) =>
               qc.setQueryData(['session'], { ...session.data, member: updated })
             }
+          />
+          <ClubsDialog
+            open={clubsOpen}
+            onClose={() => setClubsOpen(false)}
+            member={member}
+            session={session.data ?? null}
+            onSwitched={() => {
+              navigate({ kind: 'movie', mine: false });
+              setSearch('');
+              setStatus('');
+            }}
           />
           <ImportDialog
             open={importing}
