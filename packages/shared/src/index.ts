@@ -28,17 +28,21 @@ export const emailCodeSchema = z
   .regex(/^\d{6}$/, 'Digite os 6 números do código.');
 export const emailStartSchema = z.object({
   email: emailSchema,
+  mode: z.enum(['login', 'attach']).default('login'),
   turnstileToken: z.string().trim().max(4096).optional(),
 });
 export const emailVerifySchema = z.object({
   email: emailSchema,
   code: emailCodeSchema,
+  mode: z.enum(['login', 'attach']).default('login'),
 });
 export const identitySchema = z.object({
   name: displayName,
   token: z.string().trim().min(12).max(128),
 });
-export const recoverySchema = identitySchema.extend({
+export const recoverySchema = z.object({
+  name: displayName.optional(),
+  token: z.string().trim().min(12).max(128),
   recoveryCode: z.string().trim().min(12).max(128),
 });
 export const createClubSchema = z.object({

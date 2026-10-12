@@ -48,6 +48,8 @@ type SessionRow = {
   member_name: string | null;
   role: 'owner' | 'member' | null;
   active: number | null;
+  member_user_id: string | null;
+  member_user_email: string | null;
   club_id: string | null;
   club_name: string | null;
   owner_id: string | null;
@@ -97,6 +99,25 @@ const toMember = (row: MembershipRow): Member => ({
 });
 const toClub = (row: MembershipRow): Club => ({ id: row.club_id, name: row.club_name });
 
+async function activate(
+  c: Context<AppEnv>,
+  tokenHash: string,
+  userId: string,
+  membership: MembershipRow,
+) {
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE sessions SET member_id=?,club_version=? WHERE token_hash=?').bind(
+      membership.member_id,
+      membership.token_version,
+      tokenHash,
+    ),
+    c.env.DB.prepare('UPDATE users SET last_member_id=? WHERE id=?').bind(
+      membership.member_id,
+      userId,
+    ),
+  ]);
+}
+
 export async function resolveSession(
   c: Context<AppEnv>,
   withClubs = false,
@@ -106,12 +127,20 @@ export async function resolveSession(
   const digest = await hash(raw);
   const now = Math.floor(Date.now() / 1000);
   const row = await c.env.DB.prepare(
-    'SELECT s.user_id,s.member_id,s.club_version,s.scope_member_id,s.created_at,s.expires_at,u.email,m.name member_name,m.role,m.active,c2.id club_id,c2.name club_name,c2.owner_id,c2.token_version FROM sessions s LEFT JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.id=s.member_id LEFT JOIN clubs c2 ON c2.id=m.club_id WHERE s.token_hash=? AND s.expires_at>?',
+    'SELECT s.user_id,s.member_id,s.club_version,s.scope_member_id,s.created_at,s.expires_at,u.email,m.name member_name,m.role,m.active,m.user_id member_user_id,mu.email member_user_email,c2.id club_id,c2.name club_name,c2.owner_id,c2.token_version FROM sessions s LEFT JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.id=s.member_id LEFT JOIN users mu ON mu.id=m.user_id LEFT JOIN clubs c2 ON c2.id=m.club_id WHERE s.token_hash=? AND s.expires_at>?',
   )
     .bind(digest, now)
     .first<SessionRow>();
   if (!row) return null;
 
+  // Sessão de perfil cujo membro já ganhou identidade é promovida no próximo uso.
+  if (!row.user_id && row.member_user_id) {
+    await c.env.DB.prepare('UPDATE sessions SET user_id=? WHERE token_hash=?')
+      .bind(row.member_user_id, digest)
+      .run();
+    row.user_id = row.member_user_id;
+    row.email = row.member_user_email;
+  }
   const user: SessionUser | null = row.user_id ? { id: row.user_id, email: row.email } : null;
   let member: Member | null = null;
   let club: Club | null = null;
@@ -265,6 +294,13 @@ auth.get('/session', async (c) => {
 auth.post('/email/start', async (c) => {
   await rateLimit(c);
   const input = await body(c, emailStartSchema);
+  if (input.mode === 'attach') {
+    const session = await resolveSession(c);
+    if (!session?.user)
+      throw new ApiError(401, 'UNAUTHORIZED', 'Entre na sua conta para vincular o e-mail.');
+    if (session.user.email)
+      throw new ApiError(409, 'ALREADY_LINKED', 'Sua conta já tem um e-mail vinculado.');
+  }
   await validateTurnstile(c, input.turnstileToken);
   const mailer = mailerFor(c);
   const pepper = pepperFor(c);
@@ -345,6 +381,28 @@ auth.post('/email/verify', async (c) => {
     throw invalid();
   }
   await clear();
+  if (input.mode === 'attach') {
+    const session = await resolveSession(c);
+    if (!session?.user)
+      throw new ApiError(401, 'UNAUTHORIZED', 'Entre na sua conta para vincular o e-mail.');
+    if (session.user.email)
+      throw new ApiError(409, 'ALREADY_LINKED', 'Sua conta já tem um e-mail vinculado.');
+    const taken = await c.env.DB.prepare('SELECT id FROM users WHERE normalized_email=? AND id<>?')
+      .bind(input.email, session.user.id)
+      .first();
+    if (taken)
+      throw new ApiError(409, 'EMAIL_TAKEN', 'Este e-mail já está vinculado a outra conta.');
+    await c.env.DB.prepare('UPDATE users SET email=?,normalized_email=?,last_login_at=? WHERE id=?')
+      .bind(input.email, input.email, now, session.user.id)
+      .run();
+    const options = await memberships(c, session.user.id);
+    return c.json({
+      user: { id: session.user.id, email: input.email },
+      member: session.member,
+      club: session.club,
+      clubs: options.map(toClubOption),
+    });
+  }
   let user = await c.env.DB.prepare('SELECT id,email FROM users WHERE normalized_email=?')
     .bind(input.email)
     .first<{ id: string; email: string | null }>();
@@ -401,28 +459,36 @@ auth.post('/club', async (c) => {
   if (!membership) throw new ApiError(404, 'NOT_FOUND', 'Este clube não está na sua conta.');
   if (session.scopedMemberId && session.scopedMemberId !== membership.member_id)
     throw new ApiError(403, 'SCOPED', 'Este acesso está limitado a um clube.');
-  await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE sessions SET member_id=?,club_version=? WHERE token_hash=?').bind(
-      membership.member_id,
-      membership.token_version,
-      c.get('sessionHash'),
-    ),
-    c.env.DB.prepare('UPDATE users SET last_member_id=? WHERE id=?').bind(
-      membership.member_id,
-      session.user.id,
-    ),
-  ]);
+  await activate(c, c.get('sessionHash'), session.user.id, membership);
   return c.json({ member: toMember(membership), club: toClub(membership) });
 });
 
 auth.post('/create', async (c) => {
   await rateLimit(c);
   const input = await body(c, createClubSchema);
+  const session = await resolveSession(c);
+  const userId = session?.user?.id ?? id();
   const club: Club = { id: id(), name: 'Clube de ' + input.name };
   const member: Member = { id: id(), name: input.name, role: 'owner' };
   const recoveryCode = token();
   const clubCode = token();
+  const now = Math.floor(Date.now() / 1000);
+  const membership: MembershipRow = {
+    member_id: member.id,
+    member_name: member.name,
+    role: 'owner',
+    club_id: club.id,
+    club_name: club.name,
+    token_version: 1,
+  };
   await c.env.DB.batch([
+    ...(session?.user
+      ? []
+      : [
+          c.env.DB.prepare(
+            'INSERT INTO users (id,email,normalized_email,recovery_hash,created_at,last_login_at,last_member_id) VALUES (?,NULL,NULL,?,?,?,?)',
+          ).bind(userId, await hash(recoveryCode), now, now, member.id),
+        ]),
     c.env.DB.prepare('INSERT INTO clubs (id,name,token_hash,owner_id) VALUES (?,?,?,?)').bind(
       club.id,
       club.name,
@@ -430,8 +496,15 @@ auth.post('/create', async (c) => {
       member.id,
     ),
     c.env.DB.prepare(
-      "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'owner')",
-    ).bind(member.id, club.id, member.name, normalizeName(member.name), await hash(recoveryCode)),
+      "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role,user_id) VALUES (?,?,?,?,?,'owner',?)",
+    ).bind(
+      member.id,
+      club.id,
+      member.name,
+      normalizeName(member.name),
+      await hash(token()),
+      userId,
+    ),
     ...[
       { name: 'Filmes', color: 'lavender', icon: 'film' },
       { name: 'Animes', color: 'coral', icon: 'sparkles' },
@@ -442,7 +515,11 @@ auth.post('/create', async (c) => {
       ).bind(id(), club.id, list.name, normalizeName(list.name), list.color, list.icon, member.id),
     ),
   ]);
-  await issueSession(c, member.id, null);
+  if (session?.user) {
+    await activate(c, c.get('sessionHash'), session.user.id, membership);
+    return c.json({ member, club, clubToken: clubCode }, 201);
+  }
+  await issueSession(c, member.id, userId);
   return c.json({ member, club, recoveryCode, clubToken: clubCode }, 201);
 });
 
@@ -450,31 +527,91 @@ auth.post('/join', async (c) => {
   await rateLimit(c);
   const input = await body(c, identitySchema);
   const club = await findClub(c, input.token);
-  if (
-    await c.env.DB.prepare('SELECT id FROM members WHERE club_id=? AND normalized_name=?')
-      .bind(club.id, normalizeName(input.name))
-      .first()
-  ) {
+  const session = await resolveSession(c);
+  const nameTaken = async () =>
+    Boolean(
+      await c.env.DB.prepare('SELECT id FROM members WHERE club_id=? AND normalized_name=?')
+        .bind(club.id, normalizeName(input.name))
+        .first(),
+    );
+  if (session?.user) {
+    const existing = await c.env.DB.prepare(
+      'SELECT m.id member_id,m.name member_name,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
+    )
+      .bind(club.id, session.user.id)
+      .first<MembershipRow>();
+    if (existing) {
+      await activate(c, c.get('sessionHash'), session.user.id, existing);
+      return c.json({ member: toMember(existing), club: toClub(existing) });
+    }
+    if (await nameTaken())
+      throw new ApiError(
+        409,
+        'NAME_EXISTS',
+        'Este nome já tem um perfil neste clube. Escolha outro nome.',
+      );
+    const member: Member = { id: id(), name: input.name, role: 'member' };
+    try {
+      await c.env.DB.prepare(
+        "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role,user_id) VALUES (?,?,?,?,?,'member',?)",
+      )
+        .bind(
+          member.id,
+          club.id,
+          member.name,
+          normalizeName(member.name),
+          await hash(token()),
+          session.user.id,
+        )
+        .run();
+    } catch (error) {
+      if (String(error).includes('UNIQUE'))
+        throw new ApiError(409, 'NAME_EXISTS', 'Este nome já tem um perfil neste clube.');
+      throw error;
+    }
+    await activate(c, c.get('sessionHash'), session.user.id, {
+      member_id: member.id,
+      member_name: member.name,
+      role: 'member',
+      club_id: club.id,
+      club_name: club.name,
+      token_version: club.token_version,
+    });
+    return c.json({ member, club: { id: club.id, name: club.name } }, 201);
+  }
+  if (await nameTaken()) {
     throw new ApiError(
       409,
       'NAME_EXISTS',
       'Este nome já tem um perfil neste clube. Use seu código pessoal ou escolha outro nome.',
     );
   }
-  const member: Member = { id: id(), name: input.name, role: 'member' };
+  const userId = id();
   const recoveryCode = token();
+  const member: Member = { id: id(), name: input.name, role: 'member' };
+  const now = Math.floor(Date.now() / 1000);
   try {
-    await c.env.DB.prepare(
-      "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'member')",
-    )
-      .bind(member.id, club.id, member.name, normalizeName(member.name), await hash(recoveryCode))
-      .run();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        'INSERT INTO users (id,email,normalized_email,recovery_hash,created_at,last_login_at,last_member_id) VALUES (?,NULL,NULL,?,?,?,?)',
+      ).bind(userId, await hash(recoveryCode), now, now, member.id),
+      c.env.DB.prepare(
+        "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role,user_id) VALUES (?,?,?,?,?,'member',?)",
+      ).bind(
+        member.id,
+        club.id,
+        member.name,
+        normalizeName(member.name),
+        await hash(token()),
+        userId,
+      ),
+    ]);
   } catch (error) {
     if (String(error).includes('UNIQUE'))
       throw new ApiError(409, 'NAME_EXISTS', 'Este nome já tem um perfil neste clube.');
     throw error;
   }
-  await issueSession(c, member.id, null);
+  await issueSession(c, member.id, userId);
   return c.json({ member, club: { id: club.id, name: club.name }, recoveryCode }, 201);
 });
 
@@ -482,15 +619,48 @@ auth.post('/recover', async (c) => {
   await rateLimit(c);
   const input = await body(c, recoverySchema);
   const club = await findClub(c, input.token);
+  const digest = await hash(input.recoveryCode);
+  const identity = await c.env.DB.prepare('SELECT id,email FROM users WHERE recovery_hash=?')
+    .bind(digest)
+    .first<{ id: string; email: string | null }>();
+  if (identity) {
+    const membership = await c.env.DB.prepare(
+      'SELECT m.id member_id,m.name member_name,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
+    )
+      .bind(club.id, identity.id)
+      .first<MembershipRow>();
+    if (!membership)
+      throw new ApiError(401, 'INVALID_RECOVERY', 'Este código não abre um perfil neste clube.');
+    await c.env.DB.prepare('UPDATE users SET last_member_id=? WHERE id=?')
+      .bind(membership.member_id, identity.id)
+      .run();
+    await issueSession(c, membership.member_id, identity.id);
+    return c.json({ user: identity, member: toMember(membership), club: toClub(membership) });
+  }
+  if (!input.name)
+    throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código pessoal deste clube.');
   const member = await c.env.DB.prepare(
-    'SELECT id,name,role FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
+    'SELECT id,name,role,user_id FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
   )
-    .bind(club.id, normalizeName(input.name), await hash(input.recoveryCode))
-    .first<Member>();
+    .bind(club.id, normalizeName(input.name), digest)
+    .first<Member & { user_id: string | null }>();
   if (!member)
     throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código pessoal deste clube.');
+  const profile: Member = { id: member.id, name: member.name, role: member.role };
+  const user = member.user_id
+    ? await c.env.DB.prepare('SELECT id,email FROM users WHERE id=?')
+        .bind(member.user_id)
+        .first<{ id: string; email: string | null }>()
+    : null;
+  if (user) {
+    await c.env.DB.prepare('UPDATE users SET last_member_id=? WHERE id=?')
+      .bind(member.id, user.id)
+      .run();
+    await issueSession(c, member.id, user.id);
+    return c.json({ user, member: profile, club: { id: club.id, name: club.name } });
+  }
   await issueSession(c, member.id, null);
-  return c.json({ member, club: { id: club.id, name: club.name } });
+  return c.json({ user: null, member: profile, club: { id: club.id, name: club.name } });
 });
 
 auth.post('/logout', async (c) => {
@@ -528,19 +698,32 @@ auth.patch('/profile', async (c) => {
 });
 
 auth.post('/recovery-code', async (c) => {
-  if (!(await currentMember(c)))
-    throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
+  const session = await resolveSession(c);
+  if (!session?.member) throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
   const code = token();
+  if (session.user) {
+    await c.env.DB.batch([
+      c.env.DB.prepare('UPDATE users SET recovery_hash=? WHERE id=?').bind(
+        await hash(code),
+        session.user.id,
+      ),
+      c.env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').bind(
+        session.user.id,
+        c.get('sessionHash'),
+      ),
+    ]);
+    return c.json({ recoveryCode: code, scope: 'identity' });
+  }
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE id=? AND club_id=?').bind(
       await hash(code),
-      c.get('member').id,
+      session.member.id,
       c.get('club').id,
     ),
     c.env.DB.prepare('DELETE FROM sessions WHERE member_id=? AND token_hash<>?').bind(
-      c.get('member').id,
+      session.member.id,
       c.get('sessionHash'),
     ),
   ]);
-  return c.json({ recoveryCode: code });
+  return c.json({ recoveryCode: code, scope: 'profile' });
 });

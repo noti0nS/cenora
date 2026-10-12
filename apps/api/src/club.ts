@@ -146,11 +146,17 @@ clubRoutes.post('/token', async (c) => {
 clubRoutes.post('/members/:id/recovery', async (c) => {
   owner(c);
   const member = await c.env.DB.prepare(
-    'SELECT id FROM members WHERE id=? AND club_id=? AND active=1',
+    'SELECT id,user_id FROM members WHERE id=? AND club_id=? AND active=1',
   )
     .bind(c.req.param('id'), c.get('club').id)
-    .first();
+    .first<{ id: string; user_id: string | null }>();
   if (!member) throw new ApiError(404, 'NOT_FOUND', 'Perfil não encontrado.');
+  if (member.user_id)
+    throw new ApiError(
+      409,
+      'LINKED',
+      'Esta pessoa entra com o próprio acesso. Peça para ela usar o e-mail ou o código de recuperação dela.',
+    );
   const code = token();
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE id=? AND club_id=?').bind(
