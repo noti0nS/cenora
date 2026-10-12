@@ -8,12 +8,12 @@ import {
   normalizeName,
   type Media,
   type MediaDetails,
-} from '@watchlist/shared';
+} from '@cenora/shared';
 import { ApiError, body, checkpoint, id, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
 
 type Row = Record<string, any>;
-export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id WHERE rater.active=1 GROUP BY mm.media_id)
+export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id JOIN media rated ON rated.id=mm.media_id WHERE rated.club_id=? AND rater.club_id=rated.club_id AND rater.active=1 GROUP BY mm.media_id)
  SELECT m.*,r.average,COALESCE(r.rating_count,0) rating_count,p.status personal_status,p.half_points,p.season personal_season,p.episode personal_episode,p.revision personal_revision FROM media m LEFT JOIN ratings r ON r.media_id=m.id LEFT JOIN member_media p ON p.media_id=m.id AND p.member_id=?`;
 export function toMedia(r: Row): Media {
   return {
@@ -43,36 +43,57 @@ export function toMedia(r: Row): Media {
   };
 }
 export async function getMedia(c: Context<AppEnv>, mediaId: string) {
-  const row = await c.env.DB.prepare(`${mediaSelect} WHERE m.id=?`)
-    .bind(c.get('member').id, mediaId)
+  const row = await c.env.DB.prepare(`${mediaSelect} WHERE m.id=? AND m.club_id=?`)
+    .bind(c.get('club').id, c.get('member').id, mediaId, c.get('club').id)
     .first();
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Este título não foi encontrado.');
   return { row: row as Row, media: toMedia(row as Row) };
 }
-export async function attach(db: D1Database, listId: string, mediaId: string, memberId: string) {
-  if (!(await db.prepare('SELECT id FROM lists WHERE id=?').bind(listId).first()))
+export async function requireList(c: Context<AppEnv>, listId: string) {
+  if (
+    !(await c.env.DB.prepare('SELECT id FROM lists WHERE id=? AND club_id=?')
+      .bind(listId, c.get('club').id)
+      .first())
+  ) {
     throw new ApiError(404, 'NOT_FOUND', 'A lista não foi encontrada.');
-  await db
-    .prepare(
-      'INSERT OR IGNORE INTO list_items (list_id,media_id,added_by,position) VALUES (?,?,?,COALESCE((SELECT MAX(position)+1 FROM list_items WHERE list_id=?),0))',
-    )
-    .bind(listId, mediaId, memberId, listId)
+  }
+}
+export async function attach(c: Context<AppEnv>, listId: string, mediaId: string) {
+  const scope = await c.env.DB.prepare(
+    'SELECT EXISTS(SELECT 1 FROM lists WHERE id=? AND club_id=?) list_ok, EXISTS(SELECT 1 FROM media WHERE id=? AND club_id=?) media_ok',
+  )
+    .bind(listId, c.get('club').id, mediaId, c.get('club').id)
+    .first<{ list_ok: number; media_ok: number }>();
+  if (!scope?.list_ok || !scope.media_ok) {
+    throw new ApiError(404, 'NOT_FOUND', 'A lista ou o título não foi encontrado.');
+  }
+  await c.env.DB.prepare(
+    'INSERT OR IGNORE INTO list_items (list_id,media_id,added_by,position) VALUES (?,?,?,COALESCE((SELECT MAX(position)+1 FROM list_items WHERE list_id=?),0))',
+  )
+    .bind(listId, mediaId, c.get('member').id, listId)
     .run();
 }
 export async function registerCatalog(c: Context<AppEnv>, input: z.infer<typeof catalogSchema>) {
-  if (!(await c.env.DB.prepare('SELECT id FROM lists WHERE id=?').bind(input.listId).first()))
+  if (
+    !(await c.env.DB.prepare('SELECT id FROM lists WHERE id=? AND club_id=?')
+      .bind(input.listId, c.get('club').id)
+      .first())
+  )
     throw new ApiError(404, 'NOT_FOUND', 'A lista não foi encontrada.');
-  let existing = await c.env.DB.prepare('SELECT id FROM media WHERE tmdb_id=? AND kind=?')
-    .bind(input.tmdbId, input.kind)
+  let existing = await c.env.DB.prepare(
+    'SELECT id FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
+  )
+    .bind(input.tmdbId, input.kind, c.get('club').id)
     .first<{ id: string }>();
   if (!existing) {
     const r = await catalogDetails(c.env, input.kind, input.tmdbId),
       mediaId = id();
     await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO media (id,title,normalized_title,kind,year,synopsis,poster_url,tmdb_id,tmdb_rating,metadata,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,tmdb_id,tmdb_rating,metadata,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
     )
       .bind(
         mediaId,
+        c.get('club').id,
         r.title,
         normalizeName(r.title),
         input.kind,
@@ -85,13 +106,15 @@ export async function registerCatalog(c: Context<AppEnv>, input: z.infer<typeof 
         c.get('member').id,
       )
       .run();
-    existing = await c.env.DB.prepare('SELECT id FROM media WHERE tmdb_id=? AND kind=?')
-      .bind(input.tmdbId, input.kind)
+    existing = await c.env.DB.prepare(
+      'SELECT id FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
+    )
+      .bind(input.tmdbId, input.kind, c.get('club').id)
       .first<{ id: string }>();
   }
   if (!existing)
     throw new ApiError(503, 'REGISTER_FAILED', 'Não foi possível registrar este título.');
-  await attach(c.env.DB, input.listId, existing.id, c.get('member').id);
+  await attach(c, input.listId, existing.id);
   return existing.id;
 }
 export const mediaRoutes = new Hono<AppEnv>();
@@ -101,9 +124,10 @@ mediaRoutes.get('/', async (c) => {
   const list = c.req.query('list'),
     mine = c.req.query('mine') === 'true',
     status = c.req.query('status');
-  const filters: string[] = [],
-    args: unknown[] = [c.get('member').id];
+  const filters: string[] = ['m.club_id=?'],
+    args: unknown[] = [c.get('club').id, c.get('member').id, c.get('club').id];
   if (list) {
+    await requireList(c, list);
     filters.push('EXISTS (SELECT 1 FROM list_items li WHERE li.media_id=m.id AND li.list_id=?)');
     args.push(list);
   }
@@ -147,7 +171,7 @@ mediaRoutes.get('/search', async (c) => {
   const page = Math.max(1, Math.min(500, parseInt(c.req.query('page') || '1') || 1));
   if (q.length < 2)
     return c.json({ results: [], page, totalPages: 0, available: Boolean(c.env.TMDB_TOKEN) });
-  return c.json(await searchCatalog(c.env, q, page));
+  return c.json(await searchCatalog(c.env, c.get('club').id, q, page));
 });
 mediaRoutes.get('/person/:id', async (c) => {
   const personId = Number(c.req.param('id'));
@@ -157,20 +181,25 @@ mediaRoutes.get('/person/:id', async (c) => {
 });
 mediaRoutes.post('/manual', async (c) => {
   const input = await body(c, manualMediaSchema);
-  if (!(await c.env.DB.prepare('SELECT id FROM lists WHERE id=?').bind(input.listId).first()))
+  if (
+    !(await c.env.DB.prepare('SELECT id FROM lists WHERE id=? AND club_id=?')
+      .bind(input.listId, c.get('club').id)
+      .first())
+  )
     throw new ApiError(404, 'NOT_FOUND', 'A lista não foi encontrada.');
   const existing = await c.env.DB.prepare(
-    'SELECT id FROM media WHERE normalized_title=? AND kind=? AND COALESCE(year,0)=? AND tmdb_id IS NULL',
+    'SELECT id FROM media WHERE normalized_title=? AND kind=? AND COALESCE(year,0)=? AND tmdb_id IS NULL AND club_id=?',
   )
-    .bind(normalizeName(input.title), input.kind, input.year ?? 0)
+    .bind(normalizeName(input.title), input.kind, input.year ?? 0, c.get('club').id)
     .first<{ id: string }>();
   const mediaId = existing?.id || id();
   if (!existing)
     await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO media (id,title,normalized_title,kind,year,synopsis,poster_url,created_by) VALUES (?,?,?,?,?,?,?,?)',
+      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,created_by) VALUES (?,?,?,?,?,?,?,?,?)',
     )
       .bind(
         mediaId,
+        c.get('club').id,
         input.title,
         normalizeName(input.title),
         input.kind,
@@ -183,13 +212,13 @@ mediaRoutes.post('/manual', async (c) => {
   const registered =
     existing ||
     (await c.env.DB.prepare(
-      'SELECT id FROM media WHERE normalized_title=? AND kind=? AND COALESCE(year,0)=? AND tmdb_id IS NULL',
+      'SELECT id FROM media WHERE normalized_title=? AND kind=? AND COALESCE(year,0)=? AND tmdb_id IS NULL AND club_id=?',
     )
-      .bind(normalizeName(input.title), input.kind, input.year ?? 0)
+      .bind(normalizeName(input.title), input.kind, input.year ?? 0, c.get('club').id)
       .first<{ id: string }>());
   if (!registered)
     throw new ApiError(503, 'REGISTER_FAILED', 'Não foi possível guardar este título.');
-  await attach(c.env.DB, input.listId, registered.id, c.get('member').id);
+  await attach(c, input.listId, registered.id);
   return c.json({ id: registered.id }, 201);
 });
 mediaRoutes.post('/catalog', async (c) =>
@@ -224,12 +253,14 @@ mediaRoutes.get('/:id', async (c) => {
     } else stale = true;
   }
   const ratings = await c.env.DB.prepare(
-    'SELECT p.member_id memberId,m.name,p.half_points/2.0 rating FROM member_media p JOIN members m ON m.id=p.member_id WHERE p.media_id=? AND p.half_points IS NOT NULL AND m.active=1 ORDER BY m.name',
+    'SELECT p.member_id memberId,m.name,p.half_points/2.0 rating FROM member_media p JOIN members m ON m.id=p.member_id WHERE p.media_id=? AND m.club_id=? AND p.half_points IS NOT NULL AND m.active=1 ORDER BY m.name',
   )
-    .bind(media.id)
+    .bind(media.id, c.get('club').id)
     .all();
-  const lists = await c.env.DB.prepare('SELECT list_id FROM list_items WHERE media_id=?')
-    .bind(media.id)
+  const lists = await c.env.DB.prepare(
+    'SELECT li.list_id FROM list_items li JOIN lists l ON l.id=li.list_id WHERE li.media_id=? AND l.club_id=?',
+  )
+    .bind(media.id, c.get('club').id)
     .all<{ list_id: string }>();
   return c.json({
     ...media,
@@ -275,9 +306,9 @@ mediaRoutes.put('/:id/group', async (c) => {
   const { media } = await getMedia(c, c.req.param('id'));
   checkpoint(media.kind, input.season, input.episode);
   const result = await c.env.DB.prepare(
-    'UPDATE media SET group_status=?,group_season=?,group_episode=?,revision=revision+1 WHERE id=? AND revision=?',
+    'UPDATE media SET group_status=?,group_season=?,group_episode=?,revision=revision+1 WHERE id=? AND revision=? AND club_id=?',
   )
-    .bind(input.status, input.season, input.episode, media.id, input.revision)
+    .bind(input.status, input.season, input.episode, media.id, input.revision, c.get('club').id)
     .run();
   if (!result.meta.changes)
     throw new ApiError(
@@ -298,7 +329,7 @@ mediaRoutes.patch('/:id/manual', async (c) => {
   if (media.tmdbId)
     throw new ApiError(400, 'CATALOG_MEDIA', 'Os dados deste título vêm do catálogo.');
   const result = await c.env.DB.prepare(
-    'UPDATE media SET title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,revision=revision+1 WHERE id=? AND revision=?',
+    'UPDATE media SET title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,revision=revision+1 WHERE id=? AND revision=? AND club_id=?',
   )
     .bind(
       input.title,
@@ -308,6 +339,7 @@ mediaRoutes.patch('/:id/manual', async (c) => {
       input.posterUrl ?? null,
       media.id,
       input.revision,
+      c.get('club').id,
     )
     .run()
     .catch((error: unknown) => {
@@ -332,8 +364,10 @@ mediaRoutes.post('/:id/link', async (c) => {
   const { media } = await getMedia(c, c.req.param('id'));
   if (media.tmdbId || media.kind !== input.kind)
     throw new ApiError(400, 'WRONG_KIND', 'Selecione um resultado do mesmo tipo do título manual.');
-  const match = await c.env.DB.prepare('SELECT id FROM media WHERE tmdb_id=? AND kind=?')
-    .bind(input.tmdbId, input.kind)
+  const match = await c.env.DB.prepare(
+    'SELECT id FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
+  )
+    .bind(input.tmdbId, input.kind, c.get('club').id)
     .first();
   if (match)
     throw new ApiError(
@@ -343,7 +377,7 @@ mediaRoutes.post('/:id/link', async (c) => {
     );
   const d = await catalogDetails(c.env, input.kind, input.tmdbId);
   const result = await c.env.DB.prepare(
-    'UPDATE media SET tmdb_id=?,title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,tmdb_rating=?,metadata=?,revision=revision+1 WHERE id=? AND revision=? AND tmdb_id IS NULL',
+    'UPDATE media SET tmdb_id=?,title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,tmdb_rating=?,metadata=?,revision=revision+1 WHERE id=? AND revision=? AND club_id=? AND tmdb_id IS NULL',
   )
     .bind(
       input.tmdbId,
@@ -356,6 +390,7 @@ mediaRoutes.post('/:id/link', async (c) => {
       JSON.stringify(d),
       media.id,
       input.revision,
+      c.get('club').id,
     )
     .run();
   if (!result.meta.changes)

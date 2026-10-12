@@ -1,4 +1,4 @@
-import type { CatalogResult, Person, Provider } from '@watchlist/shared';
+import type { CatalogResult, Person, Provider } from '@cenora/shared';
 import { ApiError, type Env } from './lib';
 type Json = Record<string, any>;
 const image = (path: string | null | undefined, size = 'w342') =>
@@ -49,6 +49,7 @@ async function tmdb(env: Env, path: string) {
 }
 export async function searchCatalog(
   env: Env,
+  clubId: string,
   query: string,
   page: number,
 ): Promise<{ results: CatalogResult[]; page: number; totalPages: number; available: boolean }> {
@@ -62,8 +63,10 @@ export async function searchCatalog(
   const results: CatalogResult[] = [];
   for (const r of items) {
     const kind = r.media_type as 'movie' | 'tv';
-    const existing = await env.DB.prepare('SELECT id FROM media WHERE tmdb_id=? AND kind=?')
-      .bind(r.id, kind)
+    const existing = await env.DB.prepare(
+      'SELECT id FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
+    )
+      .bind(r.id, kind, clubId)
       .first<{ id: string }>();
     results.push({
       tmdbId: r.id,

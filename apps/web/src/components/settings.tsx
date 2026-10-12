@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, KeyRound, RefreshCw, Shield, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Member } from '@watchlist/shared';
+import type { Member } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Modal, Button, Field, copyCode } from './ui';
 
@@ -88,7 +88,7 @@ export function SettingsDialog({
       );
       const a = document.createElement('a');
       a.href = url;
-      a.download = `watchlist-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `cenora-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.append(a);
       a.click();
       a.remove();
@@ -230,7 +230,7 @@ export function SettingsDialog({
             </div>
           )}
           <details className="disclosure about-section">
-            <summary>Sobre a watchlist</summary>
+            <summary>Sobre a Cenora</summary>
             <div className="stack">
               <p>
                 Um pequeno espaço para as histórias que vocês querem compartilhar. Feito para

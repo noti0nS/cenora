@@ -1,4 +1,4 @@
-import WatchlistApp from '@/components/watchlist-app';
+import CenoraApp from '@/components/cenora-app';
 export default function Page() {
-  return <WatchlistApp />;
+  return <CenoraApp />;
 }

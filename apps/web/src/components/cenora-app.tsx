@@ -30,8 +30,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
-import type { Media, Watchlist, SessionState, Member } from '@watchlist/shared';
-import { personalLabels, groupLabels } from '@watchlist/shared';
+import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
+import { personalLabels, groupLabels } from '@cenora/shared';
 import { api, json, errorMessage, RequestError } from '@/lib/api';
 import { Dropdown, MenuItem, Separator, Button, Modal, Field } from './ui';
 import { Access } from './access';
@@ -64,7 +64,7 @@ function useDebounced(value: string) {
   }, [value]);
   return result;
 }
-export default function WatchlistApp() {
+export default function CenoraApp() {
   const [client] = useState(
     () =>
       new QueryClient({
@@ -171,23 +171,31 @@ function App() {
   );
   useEffect(() => {
     if (unauthorized) {
-      qc.setQueryData<SessionState>(['session'], (old) => (old ? { ...old, member: null } : old));
+      qc.setQueryData<SessionState>(['session'], (old) =>
+        old ? { ...old, member: null, club: null } : old,
+      );
       qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
       setMediaId(null);
       void qc.invalidateQueries({ queryKey: ['session'] });
     }
   }, [unauthorized, qc]);
   const member = session.data?.member;
-  const enter = (member: Member) => {
+  const enter = (member: Member, club: Club) => {
     // Preserve the active session observer while discarding previous private data.
     qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
-    qc.setQueryData(['session'], { ...session.data, member, needsSetup: false });
+    qc.setQueryData(['session'], { ...session.data, member, club });
+    navigate('', false);
+    setSearch('');
+    setStatus('');
+    setSearchOpen(false);
     void qc.invalidateQueries({ queryKey: ['session'] });
   };
   const logout = async () => {
     try {
       await api('/auth/logout', json('POST'));
-      qc.setQueryData<SessionState>(['session'], (old) => (old ? { ...old, member: null } : old));
+      qc.setQueryData<SessionState>(['session'], (old) =>
+        old ? { ...old, member: null, club: null } : old,
+      );
       qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
       setMediaId(null);
       navigate('', false);
@@ -213,8 +221,8 @@ function App() {
       />
       {session.isPending ? (
         <div className="initial-loading">
-          <span className="brand-mark">w</span>
-          <span className="sr-only">Carregando watchlist</span>
+          <span className="brand-mark">C</span>
+          <span className="sr-only">Carregando Cenora</span>
         </div>
       ) : session.error ? (
         <div className="connection-error">
@@ -223,7 +231,7 @@ function App() {
           <Button onClick={() => session.refetch()}>Tentar novamente</Button>
         </div>
       ) : !member ? (
-        <Access needsSetup={Boolean(session.data?.needsSetup)} onEnter={enter} />
+        <Access onEnter={enter} />
       ) : (
         <div className="app-shell">
           <a href="#gallery" className="skip-link">
@@ -232,12 +240,12 @@ function App() {
           <header className="app-header">
             <div className="header-left">
               <span className="brand-mini" aria-hidden="true">
-                w<span>✳</span>
+                C<span>✳</span>
               </span>
               <Dropdown
                 trigger={
                   <button className="list-switcher" aria-label="Selecionar lista">
-                    <span>{mine ? 'Minhas histórias' : active?.name || 'Watchlist'}</span>
+                    <span>{mine ? 'Minhas histórias' : active?.name || 'Cenora'}</span>
                     <ChevronDown size={18} />
                   </button>
                 }
@@ -295,6 +303,7 @@ function App() {
                 }
               >
                 <div className="menu-caption member-name">{member.name}</div>
+                {session.data?.club && <div className="menu-caption">{session.data.club.name}</div>}
                 <MenuItem onSelect={() => changeList(active?.id || '', true)}>
                   <BookOpen size={16} />
                   Minhas histórias

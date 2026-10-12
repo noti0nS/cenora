@@ -1,6 +1,6 @@
-# Watchlist
+# Cenora
 
-A private, Portuguese watchlist for a small group of friends. The main screen is a quiet poster gallery: select a list, search, add a title, or open your profile. Ratings, checkpoints, streaming availability, and management controls appear when you need them.
+Private Portuguese watchlists for friends. Anyone can create a club in the app and receive a unique private invite code. The main screen is a quiet poster gallery: select a list, search, add a title, or open your profile. Ratings, checkpoints, streaming availability, and management controls appear when you need them.
 
 ## Run locally
 
@@ -9,18 +9,17 @@ Use Node.js 22.18 or newer and pnpm 11. The lockfile pins the installed dependen
 ```powershell
 pnpm install --frozen-lockfile
 pnpm db:migrate
-pnpm club:bootstrap
 pnpm dev
 ```
 
-Open **http://127.0.0.1:8787**. The one-time setup code is saved in `.local/setup-code.txt`, which is excluded from Git. Use that code and your name to create the club. Save the generated club token and your personal recovery code before continuing.
+Open **http://127.0.0.1:8787**. Enter your name and choose **Criar meu clube**. The app generates the private invite code automatically. Save it to share with friends, and save your separate personal recovery code. Friends choose **Tenho um código de convite** and enter their name and your invite code.
 
-Local migrations and bootstrap have already been run in this workspace; you can start with `pnpm dev`. Bootstrap refuses to overwrite an existing club. The local D1 state is under `apps/api/.wrangler/state`; `.local` contains only local provisioning artifacts and an unused initial CLI simulation.
+Run `pnpm db:migrate` after pulling schema changes. Existing club data, invitation codes, and sessions are preserved by the self-service migration. Local D1 state stays under `apps/api/.wrangler/state`. Club creation does not require a command or a pre-existing invitation.
 
 For frontend hot reload, first build once, then use two terminals:
 
 ```powershell
-pnpm --filter @watchlist/api dev
+pnpm --filter @cenora/api dev
 ```
 
 ```powershell
@@ -52,7 +51,7 @@ The typographic covers are intentional fallbacks for manual entries without post
 
 ## Import your document
 
-Open the profile menu → **Importar títulos**. The review contains all three screenshots, preserving category and order, and merges the repeated Pecadores.
+Open the profile menu → **Importar títulos**. Paste a newline-separated list, or choose **Importar arquivo**. Your original screenshot titles are available privately in `imports/google-docs.json`: load that file to review all three categories, preserve order, and merge the repeated Pecadores. These personal titles are not served as a preset to other clubs.
 
 Use **Separar Zootopia 1 e 2**, edit ambiguous names, and optionally select catalog matches by year and type. Saga Toy Story remains a manual placeholder until its individual films are selected. Unmatched entries are saved manually and can be linked later from **Listas e opções** in title details.
 
@@ -62,12 +61,16 @@ The same screen also accepts newline-separated lists. The club owner can export 
 
 ## Access and collaboration
 
-- One high-entropy club token protects the club. Every profile has a separate recovery code.
+The Cenora rename retains the original session-cookie and browser-preference keys, preserving existing logins, names, themes, and selected lists.
+
+- Anyone can create a separate private club. Each club has its own unique, high-entropy invite token; each membership has a separate personal recovery code.
+- Members, lists, media, ratings, imports, and administrative operations are scoped to the club authenticated by the session. Another club cannot read or change them, even with a known record ID.
+- The same display name can be used in different clubs. One browser session is active at a time; use the appropriate club invitation and personal recovery code to return to a different membership.
 - Names and theme preferences are remembered in localStorage. Authentication uses a 30-day HttpOnly session cookie, Secure on HTTPS.
 - Reopening an existing profile on another device requires the current club token and personal recovery code. A name alone cannot reopen it.
 - Club tokens, recovery codes, and session tokens are stored as SHA-256 hashes. Raw access and recovery codes are displayed only at creation/rotation.
 - Members maintain shared lists and group progress, but can edit only their own rating and personal progress. Only the owner can delete lists or administer members.
-- Rotating the club token revokes other sessions. Replacing a recovery code revokes that person's other sessions.
+- Rotating a club token revokes that club's other sessions; other clubs remain unaffected. Replacing a recovery code revokes that membership's other sessions.
 - A shared title has one group progress record and one tracking/rating record per member, even when it appears in several lists. Removing list membership preserves ratings and checkpoints.
 - Revision checks protect personal and shared edits against accidental overwrites.
 
@@ -97,13 +100,12 @@ All commands use the installed `cf` CLI. Its documented non-Vite builder interna
 Start with staging and a **separate D1 database**:
 
 ```powershell
-pnpm --filter @watchlist/api exec cf auth login
-pnpm --filter @watchlist/api exec cf d1 create --name watchlist-staging
+pnpm --filter @cenora/api exec cf auth login
+pnpm --filter @cenora/api exec cf d1 create --name cenora-staging
 $env:D1_DATABASE_ID = 'the_database_uuid_returned_above'
 pnpm db:migrate --remote --staging
-pnpm club:bootstrap --remote --staging
-pnpm --filter @watchlist/web build
-pnpm --filter @watchlist/api exec cf deploy --mode staging --secrets-file ../../.secrets.staging.json
+pnpm --filter @cenora/web build
+pnpm --filter @cenora/api exec cf deploy --mode staging --secrets-file ../../.secrets.staging.json
 ```
 
 Create the ignored `.secrets.staging.json` locally, using your actual credentials:
@@ -115,24 +117,23 @@ Create the ignored `.secrets.staging.json` locally, using your actual credential
 }
 ```
 
-Remote bootstrap prints the owner setup code once. Save it and complete setup on the returned `workers.dev` address. Check joining, recovery, catalog search, progress, and imports before production.
+Open the returned `workers.dev` address and create a club directly in the interface. Check creation, joining, recovery, cross-club privacy, catalog search, progress, and imports before production.
 
-For production, create `watchlist`, set `D1_DATABASE_ID` to its different UUID, run migration/bootstrap with `--remote` and without `--staging`, then deploy without `--mode staging`. Use a separate production secrets file. Environment variables are inherited from your shell; the root `.env.example` is a reference rather than an automatically loaded file.
+For production, create `cenora`, set `D1_DATABASE_ID` to its different UUID, run migrations with `--remote` and without `--staging`, then deploy without `--mode staging`. Use a separate production secrets file. Environment variables are inherited from your shell; the root `.env.example` is a reference rather than an automatically loaded file.
 
 ```powershell
-pnpm --filter @watchlist/api exec cf d1 create --name watchlist
+pnpm --filter @cenora/api exec cf d1 create --name cenora
 $env:D1_DATABASE_ID = 'the_production_database_uuid'
 pnpm db:migrate --remote
-pnpm club:bootstrap --remote
-pnpm --filter @watchlist/web build
-pnpm --filter @watchlist/api exec cf deploy --secrets-file ../../.secrets.production.json
+pnpm --filter @cenora/web build
+pnpm --filter @cenora/api exec cf deploy --secrets-file ../../.secrets.production.json
 ```
 
 The frontend is exported before the Worker build because `cf` does not execute custom root build scripts. API routes run through the Worker; static assets are served directly. Private data is fetched only after authentication and is not embedded in static HTML.
 
 The free-plan target is 100,000 Worker requests/day and 10 ms CPU/request; D1 permits 500 MB per database, 5 million rows read/day, and 100,000 rows written/day. Check deployed CPU usage and errors in Cloudflare before declaring real free-tier compatibility. Local tests and dry runs do not prove live CPU usage or external API credentials.
 
-A daily scheduled task prunes expired sessions, old authentication attempts, and old provider caches. Use Cloudflare's D1 Time Travel and JSON exports for operational backup; never commit runtime state, provisioning codes, or secrets.
+A daily scheduled task prunes expired sessions, old authentication attempts, and old provider caches. Use Cloudflare's D1 Time Travel and JSON exports for operational backup; never commit runtime state or secrets.
 
 ## Project layout
 

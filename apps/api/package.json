@@ -1,5 +1,5 @@
 {
-  "name": "@watchlist/api",
+  "name": "@cenora/api",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@watchlist/shared": "workspace:*",
+    "@cenora/shared": "workspace:*",
     "hono": "^4.13.13",
     "drizzle-orm": "^0.45.4",
     "zod": "^4.6.6"

@@ -23,9 +23,8 @@ export const identitySchema = z.object({
 export const recoverySchema = identitySchema.extend({
   recoveryCode: z.string().trim().min(12).max(128),
 });
-export const setupSchema = z.object({
+export const createClubSchema = z.object({
   name: displayName,
-  setupCode: z.string().trim().min(12).max(128),
 });
 export const listSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -69,6 +68,10 @@ export interface Member {
   id: string;
   name: string;
   role: 'owner' | 'member';
+}
+export interface Club {
+  id: string;
+  name: string;
 }
 export interface Watchlist {
   id: string;
@@ -147,7 +150,7 @@ export interface CatalogPage {
 }
 export interface SessionState {
   member: Member | null;
-  needsSetup: boolean;
+  club: Club | null;
   catalogAvailable: boolean;
 }
 export interface ImportEntry {

@@ -1,7 +1,6 @@
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'esbuild';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,10 +32,12 @@ const migrations = path.join(root, 'apps/api/migrations');
 for (const migration of (await readdir(migrations))
   .filter((name) => name.endsWith('.sql'))
   .sort()) {
-  await db.exec(await readFile(path.join(migrations, migration), 'utf8'));
+  const statements = (await readFile(path.join(migrations, migration), 'utf8'))
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  await db.batch(statements.map((statement) => db.prepare(statement)));
 }
-const hash = createHash('sha256').update('e2e-owner-setup-only-123456').digest('hex');
-await db.prepare('INSERT INTO club (id,setup_hash) VALUES (1,?)').bind(hash).run();
 // A small local static host models the CDN; /api requests execute in the real Worker runtime.
 // Keeping assets out of Miniflare also avoids Windows directory locks during subsequent builds.
 const assets = path.join(root, 'apps/web/out');

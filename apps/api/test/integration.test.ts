@@ -4,11 +4,10 @@ import { build } from 'esbuild';
 import { readFile, mkdir, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { screenshotEntries } from '@watchlist/shared/import';
+import { screenshotEntries } from '@cenora/shared/import';
 
 let mf: Miniflare, db: D1Database, ownerCookie: string, clubToken: string, ownerId: string;
 let ip = 1;
-const setupCode = 'integration-owner-setup-code-123456789';
 const digest = (s: string) => createHash('sha256').update(s).digest('hex');
 async function request(
   path: string,
@@ -32,6 +31,14 @@ async function join(name: string) {
   const r = await request('/auth/join', 'POST', { name, token: clubToken }, '');
   expect(r.status).toBe(201);
   return { cookie: r.headers.get('set-cookie')!.split(';')[0], ...((await r.json()) as any) };
+}
+async function createClub(name: string) {
+  const response = await request('/auth/create', 'POST', { name }, '');
+  expect(response.status).toBe(201);
+  return {
+    cookie: response.headers.get('set-cookie')!.split(';')[0],
+    ...((await response.json()) as any),
+  };
 }
 async function lists() {
   return (await (await request('/club/lists')).json()) as any[];
@@ -67,10 +74,13 @@ beforeEach(async () => {
   for (const migration of (await readdir('migrations'))
     .filter((name) => name.endsWith('.sql'))
     .sort()) {
-    await db.exec(await readFile(`migrations/${migration}`, 'utf8'));
+    const statements = (await readFile(`migrations/${migration}`, 'utf8'))
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    await db.batch(statements.map((statement) => db.prepare(statement)));
   }
-  await db.prepare('INSERT INTO club (id,setup_hash) VALUES (1,?)').bind(digest(setupCode)).run();
-  const res = await request('/auth/setup', 'POST', { name: 'Dono', setupCode }, '');
+  const res = await request('/auth/create', 'POST', { name: 'Dono' }, '');
   expect(res.status).toBe(201);
   ownerCookie = res.headers.get('set-cookie')!.split(';')[0];
   const data = (await res.json()) as any;
@@ -81,12 +91,16 @@ afterEach(async () => {
   await mf?.dispose();
 });
 describe('private club on a real Worker + D1 runtime', () => {
-  it('creates default lists and consumes setup exactly once', async () => {
+  it('creates private clubs freely with unique invitation codes and default lists', async () => {
     expect((await lists()).map((l) => l.name)).toEqual(['Filmes', 'Animes', 'Séries']);
-    expect((await request('/auth/setup', 'POST', { name: 'Outro', setupCode }, '')).status).toBe(
-      401,
-    );
-    expect(((await db.prepare('SELECT COUNT(*) count FROM members').first()) as any).count).toBe(1);
+    const second = await request('/auth/create', 'POST', { name: 'Dono' }, '');
+    expect(second.status).toBe(201);
+    const created = (await second.json()) as any;
+    expect(created.clubToken).toMatch(/^[a-f0-9]{48}$/);
+    expect(created.clubToken).not.toBe(clubToken);
+    expect(created.member.id).not.toBe(ownerId);
+    expect(((await db.prepare('SELECT COUNT(*) count FROM clubs').first()) as any).count).toBe(2);
+    expect((await lists()).map((list) => list.name)).toEqual(['Filmes', 'Animes', 'Séries']);
   });
   it('requires a session for operational data and rejects cross-origin mutations', async () => {
     expect((await request('/club/lists', 'GET', undefined, '')).status).toBe(401);
@@ -101,6 +115,219 @@ describe('private club on a real Worker + D1 runtime', () => {
         )
       ).status,
     ).toBe(403);
+  });
+  it('isolates lists, media, member administration, and exports between freely created clubs', async () => {
+    const title = await manual();
+    const other = await createClub('Outro responsável');
+    const ownLists = (await (
+      await request('/club/lists', 'GET', undefined, other.cookie)
+    ).json()) as any[];
+    const otherList = ownLists[0].id;
+    expect(ownLists.some((list) => list.id === title.listId)).toBe(false);
+    expect((await request('/media/' + title.id, 'GET', undefined, other.cookie)).status).toBe(404);
+    expect(
+      (await request('/media?list=' + title.listId, 'GET', undefined, other.cookie)).status,
+    ).toBe(404);
+    expect(
+      (await request('/club/lists/' + title.listId, 'DELETE', undefined, other.cookie)).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          '/club/lists/' + title.listId,
+          'PATCH',
+          { name: 'Invadida', revision: 0 },
+          other.cookie,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          '/club/lists/' + otherList + '/items',
+          'POST',
+          { mediaId: title.id },
+          other.cookie,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          '/media/manual',
+          'POST',
+          { title: 'Outro filme', kind: 'movie', listId: title.listId },
+          other.cookie,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          '/media/' + title.id + '/group',
+          'PUT',
+          { status: 'watched', season: null, episode: null, revision: 0 },
+          other.cookie,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(
+          '/media/' + title.id + '/personal',
+          'PUT',
+          { status: 'watched', rating: 10, season: null, episode: null, revision: 0 },
+          other.cookie,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await request('/club/members/' + ownerId + '/recovery', 'POST', undefined, other.cookie))
+        .status,
+    ).toBe(404);
+    expect(
+      (await request('/club/members/' + ownerId, 'DELETE', undefined, other.cookie)).status,
+    ).toBe(404);
+    const exported = (await (
+      await request('/club/export', 'GET', undefined, other.cookie)
+    ).json()) as any;
+    expect(exported.club.id).toBe(other.club.id);
+    expect(exported.members.map((member: any) => member.id)).toEqual([other.member.id]);
+    expect(exported.media).toEqual([]);
+    expect(exported.lists).toHaveLength(3);
+    expect((await request('/media/' + title.id)).status).toBe(200);
+  });
+  it('keeps identical titles, import mappings, ratings, and invite rotation private to their club', async () => {
+    const entry = { title: 'A Origem', kind: 'movie', category: 'Filmes' };
+    const first = (await (
+      await request('/club/import', 'POST', { entries: [entry] })
+    ).json()) as any;
+    await request('/media/' + first.ids[0] + '/personal', 'PUT', {
+      status: 'watched',
+      rating: 9,
+      season: null,
+      episode: null,
+      revision: 0,
+    });
+    const other = await createClub('Dono');
+    const second = (await (
+      await request('/club/import', 'POST', { entries: [entry] }, other.cookie)
+    ).json()) as any;
+    expect(second.ids[0]).not.toBe(first.ids[0]);
+    const details = (await (
+      await request('/media/' + second.ids[0], 'GET', undefined, other.cookie)
+    ).json()) as any;
+    expect(details.average).toBeNull();
+    expect(details.personal).toBeNull();
+    const otherFriendResponse = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Ana', token: other.clubToken },
+      '',
+    );
+    const otherFriendCookie = otherFriendResponse.headers.get('set-cookie')!.split(';')[0];
+    expect(otherFriendResponse.status).toBe(201);
+    await request('/club/token', 'POST');
+    expect((await request('/club/lists', 'GET', undefined, other.cookie)).status).toBe(200);
+    expect((await request('/club/lists', 'GET', undefined, otherFriendCookie)).status).toBe(200);
+    expect(
+      (await request('/auth/join', 'POST', { name: 'Beto', token: other.clubToken }, '')).status,
+    ).toBe(201);
+  });
+  it('migrates an existing club without losing its invite, sessions, lists, ratings, or import mappings', async () => {
+    const legacy = new Miniflare(
+      convertV4MiniflareOptions({
+        modules: true,
+        scriptPath: resolve('.test/worker.mjs'),
+        compatibilityDate: '2026-10-11',
+        d1Databases: { DB: '33333333-3333-4333-8333-333333333333' },
+        bindings: { ENVIRONMENT: 'development' },
+      }),
+    );
+    try {
+      const previous = (await legacy.getD1Database('DB')) as unknown as D1Database;
+      for (const migration of [
+        '0001_initial.sql',
+        '0002_import_aliases.sql',
+        '0003_manual_identity.sql',
+      ]) {
+        const statements = (await readFile('migrations/' + migration, 'utf8'))
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        await previous.batch(statements.map((s) => previous.prepare(s)));
+      }
+      const oldOwner = crypto.randomUUID(),
+        oldList = crypto.randomUUID(),
+        oldMedia = crypto.randomUUID();
+      const oldInvite = 'legacy-private-invite-123456789';
+      const oldSession = 'legacy-session-token-123456789';
+      await previous.batch([
+        previous
+          .prepare('INSERT INTO club (id,token_hash,token_version,owner_id) VALUES (1,?,3,?)')
+          .bind(digest(oldInvite), oldOwner),
+        previous
+          .prepare(
+            "INSERT INTO members (id,name,normalized_name,recovery_hash,role) VALUES (?,'Pessoa','pessoa',?,'owner')",
+          )
+          .bind(oldOwner, digest('old-recovery-code')),
+        previous
+          .prepare(
+            "INSERT INTO lists (id,name,normalized_name,color,icon,created_by) VALUES (?,'Filmes','filmes','lavender','film',?)",
+          )
+          .bind(oldList, oldOwner),
+        previous
+          .prepare(
+            "INSERT INTO media (id,title,normalized_title,kind,created_by) VALUES (?,'A Origem','a origem','movie',?)",
+          )
+          .bind(oldMedia, oldOwner),
+        previous
+          .prepare(
+            'INSERT INTO sessions (token_hash,member_id,club_version,expires_at) VALUES (?,?,3,?)',
+          )
+          .bind(digest(oldSession), oldOwner, Math.floor(Date.now() / 1000) + 86400),
+        previous
+          .prepare('INSERT INTO list_items (list_id,media_id,added_by,position) VALUES (?,?,?,0)')
+          .bind(oldList, oldMedia, oldOwner),
+        previous
+          .prepare(
+            "INSERT INTO member_media (member_id,media_id,status,half_points) VALUES (?,?,'watched',17)",
+          )
+          .bind(oldOwner, oldMedia),
+        previous
+          .prepare('INSERT INTO import_aliases (source_key,variant_key,media_id) VALUES (?,?,?)')
+          .bind(JSON.stringify(['filmes', 'a origem']), 'a origem', oldMedia),
+      ]);
+      const migration = (await readFile('migrations/0004_self_service_clubs.sql', 'utf8'))
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await previous.batch(migration.map((s) => previous.prepare(s)));
+      const session = await legacy.dispatchFetch('http://localhost/api/auth/session', {
+        headers: { Cookie: 'watchlist_session=' + oldSession },
+      });
+      expect(((await session.json()) as any).member.id).toBe(oldOwner);
+      const media = await legacy.dispatchFetch('http://localhost/api/media/' + oldMedia, {
+        headers: { Cookie: 'watchlist_session=' + oldSession },
+      });
+      expect(((await media.json()) as any).personal.rating).toBe(8.5);
+      expect(
+        ((await previous.prepare('SELECT COUNT(*) count FROM list_items').first()) as any).count,
+      ).toBe(1);
+      expect(
+        ((await previous.prepare('SELECT COUNT(*) count FROM import_aliases').first()) as any)
+          .count,
+      ).toBe(1);
+      expect((await previous.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+      const joined = await legacy.dispatchFetch('http://localhost/api/auth/join', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Amigo', token: oldInvite }),
+      });
+      expect(joined.status).toBe(201);
+    } finally {
+      await legacy.dispose();
+    }
   });
   it('restores the same profile using a personal recovery code, never a name alone', async () => {
     const ana = await join('Ana');
@@ -365,10 +592,6 @@ describe('private club on a real Worker + D1 runtime', () => {
       (await request(`/club/lists/${list.id}`, 'DELETE', undefined, friend.cookie)).status,
     ).toBe(403);
     expect((await request('/club/token', 'POST', undefined, friend.cookie)).status).toBe(403);
-    expect((await request('/club/import-preset', 'GET', undefined, friend.cookie)).status).toBe(
-      403,
-    );
-    expect((await request('/club/import-preset', 'GET', undefined, '')).status).toBe(401);
     expect(
       (
         await request(

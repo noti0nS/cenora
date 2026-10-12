@@ -4,7 +4,7 @@ const config: NextConfig = {
   output: dev ? undefined : 'export',
   trailingSlash: true,
   images: { unoptimized: true },
-  transpilePackages: ['@watchlist/shared'],
+  transpilePackages: ['@cenora/shared'],
   ...(dev
     ? {
         async rewrites() {

@@ -3,26 +3,31 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import {
   identitySchema,
   recoverySchema,
-  setupSchema,
+  createClubSchema,
   normalizeName,
-  displayName,
-} from '@watchlist/shared';
+  type Member,
+  type Club,
+} from '@cenora/shared';
 import type { Context } from 'hono';
-import type { Member } from '@watchlist/shared';
 import { ApiError, body, hash, token, id, rateLimit, type AppEnv } from './lib';
 
+type ClubRow = Club & { owner_id: string; token_version: number };
+
 export async function issueSession(c: Context<AppEnv>, memberId: string) {
+  const membership = await c.env.DB.prepare(
+    'SELECT c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=? AND m.active=1',
+  )
+    .bind(memberId)
+    .first<{ token_version: number }>();
+  if (!membership) throw new ApiError(401, 'UNAUTHORIZED', 'Este perfil não está disponível.');
   const value = token();
-  const club = await c.env.DB.prepare('SELECT token_version FROM club WHERE id=1').first<{
-    token_version: number;
-  }>();
   await c.env.DB.prepare(
     'INSERT INTO sessions (token_hash,member_id,club_version,expires_at) VALUES (?,?,?,?)',
   )
     .bind(
       await hash(value),
       memberId,
-      club!.token_version,
+      membership.token_version,
       Math.floor(Date.now() / 1000) + 30 * 86400,
     )
     .run();
@@ -34,126 +39,124 @@ export async function issueSession(c: Context<AppEnv>, memberId: string) {
     maxAge: 30 * 86400,
   });
 }
+
 export async function currentMember(c: Context<AppEnv>): Promise<Member | null> {
   const raw = getCookie(c, 'watchlist_session');
   if (!raw || raw.length > 128) return null;
   const digest = await hash(raw);
-  const member = await c.env.DB.prepare(
-    'SELECT m.id,m.name,m.role FROM sessions s JOIN members m ON m.id=s.member_id JOIN club c ON c.id=1 WHERE s.token_hash=? AND s.expires_at>? AND s.club_version=c.token_version AND m.active=1',
+  const row = await c.env.DB.prepare(
+    'SELECT m.id,m.name,m.role,c.id club_id,c.name club_name,c.owner_id FROM sessions s JOIN members m ON m.id=s.member_id JOIN clubs c ON c.id=m.club_id WHERE s.token_hash=? AND s.expires_at>? AND s.club_version=c.token_version AND m.active=1',
   )
     .bind(digest, Math.floor(Date.now() / 1000))
-    .first<Member>();
-  if (member) {
-    c.set('member', member);
-    c.set('sessionHash', digest);
-  }
+    .first<Member & { club_id: string; club_name: string; owner_id: string }>();
+  if (!row) return null;
+  const member: Member = { id: row.id, name: row.name, role: row.role };
+  c.set('member', member);
+  c.set('club', { id: row.club_id, name: row.club_name });
+  c.set('clubOwnerId', row.owner_id);
+  c.set('sessionHash', digest);
   return member;
 }
-async function clubToken(c: Context<AppEnv>, raw: string) {
-  const club = await c.env.DB.prepare('SELECT token_hash FROM club WHERE id=1').first<{
-    token_hash: string;
-  }>();
-  if (!club?.token_hash || club.token_hash !== (await hash(raw)))
-    throw new ApiError(401, 'INVALID_TOKEN', 'O código do clube não é válido.');
+
+async function findClub(c: Context<AppEnv>, raw: string): Promise<ClubRow> {
+  const club = await c.env.DB.prepare(
+    'SELECT id,name,owner_id,token_version FROM clubs WHERE token_hash=?',
+  )
+    .bind(await hash(raw))
+    .first<ClubRow>();
+  if (!club) throw new ApiError(401, 'INVALID_TOKEN', 'O código do clube não é válido.');
+  return club;
 }
+
 export const auth = new Hono<AppEnv>();
+
 auth.get('/session', async (c) => {
-  const club = await c.env.DB.prepare('SELECT owner_id FROM club WHERE id=1').first<{
-    owner_id: string | null;
-  }>();
+  const member = await currentMember(c);
   return c.json({
-    member: await currentMember(c),
-    needsSetup: !club?.owner_id,
+    member,
+    club: member ? c.get('club') : null,
     catalogAvailable: Boolean(c.env.TMDB_TOKEN),
   });
 });
-auth.post('/setup', async (c) => {
+
+auth.post('/create', async (c) => {
   await rateLimit(c);
-  const input = await body(c, setupSchema);
-  const setupHash = await hash(input.setupCode);
-  const memberId = id(),
-    recoveryCode = token(),
-    clubCode = token(),
-    now = Math.floor(Date.now() / 1000);
-  const statements = [
+  const input = await body(c, createClubSchema);
+  const club: Club = { id: id(), name: 'Clube de ' + input.name };
+  const member: Member = { id: id(), name: input.name, role: 'owner' };
+  const recoveryCode = token();
+  const clubCode = token();
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO clubs (id,name,token_hash,owner_id) VALUES (?,?,?,?)').bind(
+      club.id,
+      club.name,
+      await hash(clubCode),
+      member.id,
+    ),
     c.env.DB.prepare(
-      "INSERT INTO members (id,name,normalized_name,recovery_hash,role) SELECT ?,?,?,?,'owner' FROM club WHERE id=1 AND setup_hash=? AND owner_id IS NULL",
-    ).bind(memberId, input.name, normalizeName(input.name), await hash(recoveryCode), setupHash),
-    c.env.DB.prepare(
-      'UPDATE club SET token_hash=?,owner_id=?,setup_hash=NULL WHERE id=1 AND setup_hash=? AND owner_id IS NULL',
-    ).bind(await hash(clubCode), memberId, setupHash),
+      "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'owner')",
+    ).bind(member.id, club.id, member.name, normalizeName(member.name), await hash(recoveryCode)),
     ...[
       { name: 'Filmes', color: 'lavender', icon: 'film' },
       { name: 'Animes', color: 'coral', icon: 'sparkles' },
       { name: 'Séries', color: 'sage', icon: 'tv' },
-    ].map((l) =>
+    ].map((list) =>
       c.env.DB.prepare(
-        'INSERT INTO lists (id,name,normalized_name,color,icon,created_by) SELECT ?,?,?,?,?,? FROM club WHERE owner_id=?',
-      ).bind(id(), l.name, normalizeName(l.name), l.color, l.icon, memberId, memberId),
+        'INSERT INTO lists (id,club_id,name,normalized_name,color,icon,created_by) VALUES (?,?,?,?,?,?,?)',
+      ).bind(id(), club.id, list.name, normalizeName(list.name), list.color, list.icon, member.id),
     ),
-    c.env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at<?').bind(now),
-  ];
-  const result = await c.env.DB.batch(statements);
-  if (result[0].meta.changes !== 1)
-    throw new ApiError(
-      401,
-      'INVALID_SETUP',
-      'O código de configuração não é válido ou já foi utilizado.',
-    );
-  await issueSession(c, memberId);
-  return c.json(
-    {
-      member: { id: memberId, name: input.name, role: 'owner' },
-      recoveryCode,
-      clubToken: clubCode,
-    },
-    201,
-  );
+  ]);
+  await issueSession(c, member.id);
+  return c.json({ member, club, recoveryCode, clubToken: clubCode }, 201);
 });
+
 auth.post('/join', async (c) => {
   await rateLimit(c);
   const input = await body(c, identitySchema);
-  await clubToken(c, input.token);
+  const club = await findClub(c, input.token);
   if (
-    await c.env.DB.prepare('SELECT id FROM members WHERE normalized_name=?')
-      .bind(normalizeName(input.name))
+    await c.env.DB.prepare('SELECT id FROM members WHERE club_id=? AND normalized_name=?')
+      .bind(club.id, normalizeName(input.name))
       .first()
-  )
+  ) {
     throw new ApiError(
       409,
       'NAME_EXISTS',
-      'Este nome já tem um perfil. Use seu código de recuperação ou escolha outro nome.',
+      'Este nome já tem um perfil neste clube. Use seu código pessoal ou escolha outro nome.',
     );
-  const memberId = id(),
-    recoveryCode = token();
+  }
+  const member: Member = { id: id(), name: input.name, role: 'member' };
+  const recoveryCode = token();
   try {
     await c.env.DB.prepare(
-      "INSERT INTO members (id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,'member')",
+      "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'member')",
     )
-      .bind(memberId, input.name, normalizeName(input.name), await hash(recoveryCode))
+      .bind(member.id, club.id, member.name, normalizeName(member.name), await hash(recoveryCode))
       .run();
-  } catch (e) {
-    if (String(e).includes('UNIQUE'))
-      throw new ApiError(409, 'NAME_EXISTS', 'Este nome já tem um perfil.');
-    throw e;
+  } catch (error) {
+    if (String(error).includes('UNIQUE'))
+      throw new ApiError(409, 'NAME_EXISTS', 'Este nome já tem um perfil neste clube.');
+    throw error;
   }
-  await issueSession(c, memberId);
-  return c.json({ member: { id: memberId, name: input.name, role: 'member' }, recoveryCode }, 201);
+  await issueSession(c, member.id);
+  return c.json({ member, club: { id: club.id, name: club.name }, recoveryCode }, 201);
 });
+
 auth.post('/recover', async (c) => {
   await rateLimit(c);
   const input = await body(c, recoverySchema);
-  await clubToken(c, input.token);
+  const club = await findClub(c, input.token);
   const member = await c.env.DB.prepare(
-    'SELECT id,name,role FROM members WHERE normalized_name=? AND recovery_hash=? AND active=1',
+    'SELECT id,name,role FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
   )
-    .bind(normalizeName(input.name), await hash(input.recoveryCode))
+    .bind(club.id, normalizeName(input.name), await hash(input.recoveryCode))
     .first<Member>();
   if (!member)
-    throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código de recuperação.');
+    throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código pessoal deste clube.');
   await issueSession(c, member.id);
-  return c.json({ member });
+  return c.json({ member, club: { id: club.id, name: club.name } });
 });
+
 auth.post('/logout', async (c) => {
   const raw = getCookie(c, 'watchlist_session');
   if (raw)
@@ -163,29 +166,32 @@ auth.post('/logout', async (c) => {
   deleteCookie(c, 'watchlist_session', { path: '/' });
   return c.json({ ok: true });
 });
+
 auth.patch('/profile', async (c) => {
   if (!(await currentMember(c)))
     throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
   const input = await body(c, identitySchema.pick({ name: true }));
   try {
-    await c.env.DB.prepare('UPDATE members SET name=?,normalized_name=? WHERE id=?')
-      .bind(input.name, normalizeName(input.name), c.get('member').id)
+    await c.env.DB.prepare('UPDATE members SET name=?,normalized_name=? WHERE id=? AND club_id=?')
+      .bind(input.name, normalizeName(input.name), c.get('member').id, c.get('club').id)
       .run();
-  } catch (e) {
-    if (String(e).includes('UNIQUE'))
-      throw new ApiError(409, 'NAME_EXISTS', 'Este nome já está em uso.');
-    throw e;
+  } catch (error) {
+    if (String(error).includes('UNIQUE'))
+      throw new ApiError(409, 'NAME_EXISTS', 'Este nome já está em uso neste clube.');
+    throw error;
   }
   return c.json({ ...c.get('member'), name: input.name });
 });
+
 auth.post('/recovery-code', async (c) => {
   if (!(await currentMember(c)))
     throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
   const code = token();
   await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE id=?').bind(
+    c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE id=? AND club_id=?').bind(
       await hash(code),
       c.get('member').id,
+      c.get('club').id,
     ),
     c.env.DB.prepare('DELETE FROM sessions WHERE member_id=? AND token_hash<>?').bind(
       c.get('member').id,

@@ -1,7 +1,7 @@
 import { bindings, defineConfig, triggers } from 'cf/config';
 export default defineConfig(({ mode }) => ({
   worker: {
-    name: mode === 'staging' ? 'watchlist-staging' : 'watchlist',
+    name: mode === 'staging' ? 'cenora-staging' : 'cenora',
     entrypoint: './src/index.ts',
     compatibilityDate: '2026-10-11',
     assets: {
@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
           mode === 'development'
             ? '11111111-1111-4111-8111-111111111111'
             : process.env.D1_DATABASE_ID,
-        name: mode === 'staging' ? 'watchlist-staging' : 'watchlist',
+        name: mode === 'staging' ? 'cenora-staging' : 'cenora',
       }),
       ASSETS: bindings.assets(),
       ENVIRONMENT: bindings.text(mode === 'development' ? 'development' : 'production'),

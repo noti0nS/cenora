@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CatalogPage, CatalogResult, Watchlist } from '@watchlist/shared';
+import type { CatalogPage, CatalogResult, Watchlist } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Modal, Field, Button } from './ui';
 import { Poster } from './poster';

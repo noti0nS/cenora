@@ -23,7 +23,7 @@ importers:
 
   apps/api:
     dependencies:
-      '@watchlist/shared':
+      '@cenora/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       drizzle-orm:
@@ -78,7 +78,7 @@ importers:
       '@tanstack/react-query':
         specifier: latest
         version: 5.104.1(react@19.3.0)
-      '@watchlist/shared':
+      '@cenora/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       clsx:

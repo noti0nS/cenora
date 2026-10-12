@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Member } from '@watchlist/shared';
+import type { Member, Club } from '@cenora/shared';
 import type { ZodType } from 'zod';
 export interface Env {
   DB: D1Database;
@@ -8,7 +8,10 @@ export interface Env {
   OMDB_KEY?: string;
   ENVIRONMENT?: string;
 }
-export type AppEnv = { Bindings: Env; Variables: { member: Member; sessionHash: string } };
+export type AppEnv = {
+  Bindings: Env;
+  Variables: { member: Member; club: Club; clubOwnerId: string; sessionHash: string };
+};
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -41,7 +44,7 @@ export async function body<T>(c: Context<AppEnv>, schema: ZodType<T>): Promise<T
   return result.data;
 }
 export function owner(c: Context<AppEnv>) {
-  if (c.get('member').role !== 'owner')
+  if (c.get('member').role !== 'owner' || c.get('clubOwnerId') !== c.get('member').id)
     throw new ApiError(403, 'FORBIDDEN', 'Esta ação é reservada à pessoa responsável pelo clube.');
 }
 export function checkpoint(kind: string, season: number | null, episode: number | null) {

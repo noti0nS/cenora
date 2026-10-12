@@ -11,7 +11,7 @@ import {
   type PersonalStatus,
   type GroupStatus,
   type CatalogResult,
-} from '@watchlist/shared';
+} from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
 import { Modal, Button, Field } from './ui';
 import { Poster } from './poster';

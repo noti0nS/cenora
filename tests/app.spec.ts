@@ -16,17 +16,20 @@ test.beforeAll(async ({ browser }) => {
   await page.goto('http://127.0.0.1:8788');
   await expect(page.getByRole('heading', { name: 'Boas histórias. Boa companhia.' })).toBeVisible();
   await page.getByLabel('Como podemos chamar você?').fill('Ana');
-  await page.getByLabel('Código de configuração').fill('e2e-owner-setup-only-123456');
-  await page.getByRole('button', { name: 'Criar nosso clube' }).click();
-  await expect(page.getByRole('heading', { name: 'Seu lugar está guardado.' })).toBeVisible();
+  await expect(page.getByLabel('Código de configuração')).toHaveCount(0);
+  await expect(page.getByLabel('Código do clube')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Criar meu clube' }).click();
+  await expect(page.getByRole('heading', { name: 'Seu clube está pronto.' })).toBeVisible();
   const codes = await page.locator('.code-block code').allTextContents();
   clubToken = codes[0];
   recoveryCode = codes[1];
   await page.getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' }).check();
-  await page.getByRole('button', { name: 'Ir para a watchlist' }).click();
+  await page.getByRole('button', { name: 'Ir para a Cenora' }).click();
   await expect(page.getByRole('button', { name: 'Selecionar lista' })).toBeVisible();
   await page.getByRole('button', { name: 'Trazer nossa lista do documento' }).click();
   await expect(page.getByRole('heading', { name: 'Do documento para cá' })).toBeVisible();
+  await page.getByRole('button', { name: 'Importar arquivo', exact: true }).click();
+  await page.getByLabel('Escolha sua lista').setInputFiles('imports/google-docs.json');
   await page.getByRole('button', { name: 'Separar Zootopia 1 e 2' }).click();
   await page
     .getByRole('checkbox', {
@@ -133,6 +136,7 @@ test('a second device recovers the same profile without losing ratings', async (
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:8788');
+  await page.getByRole('button', { name: 'Tenho um código de convite' }).click();
   await page.getByRole('button', { name: 'Já tenho um perfil em outro dispositivo' }).click();
   await page.getByLabel('Como podemos chamar você?').fill('Ana');
   await page.getByLabel('Código do clube', { exact: true }).fill(clubToken);
@@ -142,4 +146,56 @@ test('a second device recovers the same profile without losing ratings', async (
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   await expect(page.getByLabel('Minha nota · /10')).toHaveValue('8.5');
   await context.close();
+});
+test('a new creator gets a private code and friends join only that club', async ({
+  browser,
+  page,
+}) => {
+  const creatorContext = await browser.newContext();
+  const friendContext = await browser.newContext();
+  try {
+    const creator = await creatorContext.newPage();
+    await creator.goto('http://127.0.0.1:8788');
+    await creator.getByLabel('Como podemos chamar você?').fill('Bia');
+    await expect(creator.getByLabel('Código do clube')).toHaveCount(0);
+    await creator.getByRole('button', { name: 'Criar meu clube' }).click();
+    await expect(creator.getByRole('heading', { name: 'Seu clube está pronto.' })).toBeVisible();
+    const invite = await creator.locator('.code-block code').first().textContent();
+    expect(invite).not.toBe(clubToken);
+    expect(invite).toMatch(/^[a-f0-9]{48}$/);
+    await creator
+      .getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' })
+      .check();
+    await creator.getByRole('button', { name: 'Ir para a Cenora' }).click();
+    await expect(creator.getByRole('button', { name: 'Selecionar lista' })).toBeVisible();
+    await expect(creator.locator('.media-card')).toHaveCount(0);
+    await creator.getByRole('button', { name: 'Adicionar', exact: true }).click();
+    await creator.getByLabel('Título', { exact: true }).fill('Só no clube da Bia');
+    await creator.getByRole('button', { name: 'Guardar na lista' }).click();
+    await expect(creator.getByRole('dialog', { name: 'Só no clube da Bia' })).toBeVisible();
+    const friend = await friendContext.newPage();
+    await friend.goto('http://127.0.0.1:8788');
+    await friend.getByRole('button', { name: 'Tenho um código de convite' }).click();
+    await friend.getByLabel('Como podemos chamar você?').fill('Beto');
+    await friend.getByLabel('Código do clube', { exact: true }).fill(invite!);
+    await friend.getByRole('button', { name: 'Entrar no clube' }).click();
+    await expect(friend.getByRole('heading', { name: 'Seu lugar está guardado.' })).toBeVisible();
+    await friend
+      .getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' })
+      .check();
+    await friend.getByRole('button', { name: 'Ir para a Cenora' }).click();
+    await expect(
+      friend.getByRole('button', { name: 'Abrir Só no clube da Bia', exact: true }),
+    ).toBeVisible();
+    await friend.getByRole('button', { name: 'Perfil de Beto' }).click();
+    await expect(friend.getByText('Clube de Bia', { exact: true })).toBeVisible();
+    await page.goto('/');
+    await expect(page.locator('.media-card')).toHaveCount(30);
+    await expect(
+      page.getByRole('button', { name: 'Abrir Só no clube da Bia', exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await creatorContext.close();
+    await friendContext.close();
+  }
 });

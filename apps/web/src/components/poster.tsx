@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import type { Media, CatalogResult } from '@watchlist/shared';
+import type { Media, CatalogResult } from '@cenora/shared';
 import { clsx } from 'clsx';
 export function Poster({
   media,

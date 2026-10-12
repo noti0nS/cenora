@@ -4,12 +4,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Film, ArrowRight, KeyRound, Copy, Check } from 'lucide-react';
-import { displayName, type Member } from '@watchlist/shared';
+import { displayName, type Member, type Club } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Button, Field, copyCode } from './ui';
 const schema = z.object({
   name: displayName,
-  code: z.string().trim().min(12, 'Confira o código.'),
+  code: z.string().trim(),
   recoveryCode: z.string(),
 });
 type Form = z.infer<typeof schema>;
@@ -28,7 +28,7 @@ export function Codes({
       <div className="success-mark">
         <Check size={24} />
       </div>
-      <h2>Seu lugar está guardado.</h2>
+      <h2>{clubToken ? 'Seu clube está pronto.' : 'Seu lugar está guardado.'}</h2>
       <p>Salve estes códigos antes de continuar. Eles aparecem apenas desta vez.</p>
       {clubToken && (
         <div className="code-block">
@@ -60,23 +60,18 @@ export function Codes({
         Guardei meus códigos em um lugar seguro.
       </label>
       <Button disabled={!saved} onClick={onDone}>
-        Ir para a watchlist
+        Ir para a Cenora
         <ArrowRight size={16} />
       </Button>
     </div>
   );
 }
-export function Access({
-  needsSetup,
-  onEnter,
-}: {
-  needsSetup: boolean;
-  onEnter: (member: Member) => void;
-}) {
-  const [recover, setRecover] = useState(false),
+export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => void }) {
+  const [mode, setMode] = useState<'create' | 'join' | 'recover'>('create'),
     [error, setError] = useState(''),
     [result, setResult] = useState<{
       member: Member;
+      club: Club;
       recoveryCode?: string;
       clubToken?: string;
     } | null>(null);
@@ -90,27 +85,35 @@ export function Access({
   const submit = form.handleSubmit(async (values) => {
     setError('');
     try {
-      if (recover && values.recoveryCode.trim().length < 12) {
+      if (mode !== 'create' && values.code.length < 12) {
+        form.setError('code', { message: 'Confira o código de convite.' });
+        return;
+      }
+      if (mode === 'recover' && values.recoveryCode.trim().length < 12) {
         setError('Informe seu código de recuperação.');
         return;
       }
-      const path = needsSetup ? 'setup' : recover ? 'recover' : 'join';
-      const data = await api<{ member: Member; recoveryCode?: string; clubToken?: string }>(
-        `/auth/${path}`,
+      const data = await api<{
+        member: Member;
+        club: Club;
+        recoveryCode?: string;
+        clubToken?: string;
+      }>(
+        `/auth/${mode}`,
         json(
           'POST',
-          needsSetup
-            ? { name: values.name, setupCode: values.code }
+          mode === 'create'
+            ? { name: values.name }
             : {
                 name: values.name,
                 token: values.code,
-                ...(recover ? { recoveryCode: values.recoveryCode.trim() } : {}),
+                ...(mode === 'recover' ? { recoveryCode: values.recoveryCode.trim() } : {}),
               },
         ),
       );
       localStorage.setItem('watchlist:name', data.member.name);
       if (data.recoveryCode) setResult(data);
-      else onEnter(data.member);
+      else onEnter(data.member, data.club);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -130,15 +133,15 @@ export function Access({
       </div>
       <section className="access-card">
         <span className="wordmark">
-          <span className="brand-mark">w</span>watchlist
+          <span className="brand-mark">C</span>Cenora
         </span>
         {result ? (
-          <Codes {...result} onDone={() => onEnter(result.member)} />
+          <Codes {...result} onDone={() => onEnter(result.member, result.club)} />
         ) : (
           <>
-            <p className="eyebrow">{needsSetup ? 'UM NOVO CLUBE' : 'SÓ ENTRE AMIGOS'}</p>
+            <p className="eyebrow">{mode === 'create' ? 'UM NOVO CLUBE' : 'SÓ ENTRE AMIGOS'}</p>
             <h1>
-              {needsSetup ? (
+              {mode === 'create' ? (
                 <>
                   Boas histórias.
                   <br />
@@ -153,8 +156,8 @@ export function Access({
               )}
             </h1>
             <p className="access-intro">
-              {needsSetup
-                ? 'Um pequeno espaço para as histórias que vocês querem compartilhar.'
+              {mode === 'create'
+                ? 'Crie seu clube e receba um código privado para convidar seus amigos.'
                 : 'Uma lista feita por vocês. Um lugar para guardar o que vem depois.'}
             </p>
             <form onSubmit={submit}>
@@ -164,25 +167,20 @@ export function Access({
                   <span className="field-error">{form.formState.errors.name.message}</span>
                 )}
               </Field>
-              <Field
-                label={needsSetup ? 'Código de configuração' : 'Código do clube'}
-                hint={
-                  needsSetup
-                    ? 'Use o código gerado pelo comando de configuração.'
-                    : 'Peça o código a quem criou o clube.'
-                }
-              >
-                <input
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Cole o código aqui"
-                  {...form.register('code')}
-                />
-                {form.formState.errors.code && (
-                  <span className="field-error">{form.formState.errors.code.message}</span>
-                )}
-              </Field>
-              {recover && (
+              {mode !== 'create' && (
+                <Field label="Código do clube" hint="Peça o código a quem criou o clube.">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Cole o código aqui"
+                    {...form.register('code')}
+                  />
+                  {form.formState.errors.code && (
+                    <span className="field-error">{form.formState.errors.code.message}</span>
+                  )}
+                </Field>
+              )}
+              {mode === 'recover' && (
                 <Field label="Seu código de recuperação">
                   <input type="password" autoComplete="off" {...form.register('recoveryCode')} />
                 </Field>
@@ -193,24 +191,37 @@ export function Access({
                 </p>
               )}
               <Button type="submit" busy={form.formState.isSubmitting}>
-                {needsSetup
-                  ? 'Criar nosso clube'
-                  : recover
+                {mode === 'create'
+                  ? 'Criar meu clube'
+                  : mode === 'recover'
                     ? 'Recuperar meu perfil'
                     : 'Entrar no clube'}
                 <ArrowRight size={17} />
               </Button>
             </form>
-            {!needsSetup && (
+            <button
+              className="text-button recovery-link"
+              onClick={() => {
+                setMode(mode === 'create' ? 'join' : 'create');
+                setError('');
+                form.clearErrors();
+              }}
+            >
+              {mode === 'create' ? 'Tenho um código de convite' : 'Quero criar um clube'}
+            </button>
+            {mode !== 'create' && (
               <button
                 className="text-button recovery-link"
                 onClick={() => {
-                  setRecover(!recover);
+                  setMode(mode === 'recover' ? 'join' : 'recover');
                   setError('');
+                  form.clearErrors();
                 }}
               >
                 <KeyRound size={14} />
-                {recover ? 'Quero criar um perfil novo' : 'Já tenho um perfil em outro dispositivo'}
+                {mode === 'recover'
+                  ? 'Quero criar um perfil novo'
+                  : 'Já tenho um perfil em outro dispositivo'}
               </button>
             )}
           </>

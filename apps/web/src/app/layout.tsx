@@ -7,7 +7,7 @@ import '@fontsource/nunito-sans/600.css';
 import '@fontsource/nunito-sans/700.css';
 import './globals.css';
 export const metadata: Metadata = {
-  title: 'Watchlist · boas histórias, boa companhia',
+  title: 'Cenora · boas histórias, boa companhia',
   description: 'Um pequeno espaço para as histórias que vocês querem compartilhar.',
   robots: { index: false, follow: false },
 };

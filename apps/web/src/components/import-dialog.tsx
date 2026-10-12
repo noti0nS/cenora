@@ -1,13 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Search, Check, Split, ClipboardList } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ImportEntry, CatalogResult } from '@watchlist/shared';
+import { importSchema, type ImportEntry, type CatalogResult } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Modal, Button, Field } from './ui';
 import { CatalogSearch } from './add-media';
+
 type Draft = ImportEntry & { checked: boolean; key: number };
+
 export function ImportDialog({
   open,
   onClose,
@@ -18,90 +20,87 @@ export function ImportDialog({
   catalogAvailable: boolean;
 }) {
   const qc = useQueryClient();
-  const preset = useQuery({
-    queryKey: ['importPreset'],
-    queryFn: () => api<ImportEntry[]>('/club/import-preset'),
-    enabled: open,
-    staleTime: Infinity,
-  });
-  const presetDraft = () =>
-    (preset.data || []).map((entry, key) => ({
-      ...entry,
-      originalTitle: entry.title,
-      key,
-      checked: true,
-    }));
-  const [entries, setEntries] = useState<Draft[]>([]),
-    [mode, setMode] = useState<'screenshots' | 'paste'>('screenshots'),
-    [paste, setPaste] = useState(''),
-    [category, setCategory] = useState('Filmes'),
-    [kind, setKind] = useState<'movie' | 'tv'>('movie'),
-    [match, setMatch] = useState<number | null>(null),
-    [confirmed, setConfirmed] = useState(false),
-    [busy, setBusy] = useState(false),
-    [progress, setProgress] = useState(0),
-    [error, setError] = useState('');
+  const [entries, setEntries] = useState<Draft[]>([]);
+  const [mode, setMode] = useState<'paste' | 'file'>('paste');
+  const [paste, setPaste] = useState('');
+  const [category, setCategory] = useState('Filmes');
+  const [kind, setKind] = useState<'movie' | 'tv'>('movie');
+  const [match, setMatch] = useState<number | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState('');
   useEffect(() => {
     if (open) {
-      setEntries(presetDraft());
+      setEntries([]);
+      setPaste('');
+      setMode('paste');
       setConfirmed(false);
       setError('');
       setProgress(0);
-      setMode('screenshots');
     }
   }, [open]);
-  useEffect(() => {
-    if (open && mode === 'screenshots' && preset.data) {
-      setEntries((previous) => (previous.length ? previous : presetDraft()));
-    }
-  }, [open, mode, preset.data]);
-  const selected = entries.filter((e) => e.checked);
-  const active = entries.find((e) => e.key === match);
-  const patch = (key: number, values: Partial<Draft>) => {
-    setEntries((old) => old.map((e) => (e.key === key ? { ...e, ...values } : e)));
-    setConfirmed(false);
-  };
-  const split = () => {
-    setEntries((old) =>
-      old.flatMap((e) =>
-        e.title === 'Zootopia 1 e 2'
-          ? [
-              { ...e, title: 'Zootopia' },
-              { ...e, key: Date.now(), title: 'Zootopia 2' },
-            ]
-          : [e],
-      ),
-    );
-    setConfirmed(false);
-  };
-  const preview = () => {
-    const lines = paste
-      .split(/\r?\n/)
-      .map((s) => s.replace(/^\s*[-•\d.)]+\s*/, '').trim())
-      .filter(Boolean);
-    const unique = [...new Set(lines)];
-    if (!unique.length) {
-      toast.error('Cole pelo menos um título.');
-      return;
-    }
-    if (unique.length > 100) {
-      toast.error('Use até 100 títulos por importação.');
+  const selected = entries.filter((entry) => entry.checked);
+  const active = entries.find((entry) => entry.key === match);
+  const review = (raw: unknown) => {
+    const result = importSchema.safeParse({ entries: raw });
+    if (!result.success) {
+      toast.error('Confira a lista: use até 100 títulos, com nome, tipo e categoria.');
       return;
     }
     setEntries(
-      unique.map((title, key) => ({
-        title,
-        originalTitle: title,
-        kind,
-        category,
+      result.data.entries.map((entry, key) => ({
+        ...entry,
+        originalTitle: entry.originalTitle || entry.title,
         key,
         checked: true,
       })),
     );
     setConfirmed(false);
   };
-  const choose = (r: CatalogResult) => {
-    if (match !== null) patch(match, { title: r.title, kind: r.kind, tmdbId: r.tmdbId });
+  const preview = () => {
+    const lines = [
+      ...new Set(
+        paste
+          .split(/\r?\n/)
+          .map((line) => line.replace(/^\s*[-•\d.)]+\s*/, '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    review(lines.map((title) => ({ title, kind, category })));
+  };
+  const readFile = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 200000) {
+      toast.error('Escolha uma lista de até 200 KB.');
+      return;
+    }
+    try {
+      review(JSON.parse(await file.text()));
+    } catch {
+      toast.error('Não foi possível ler esta lista. Escolha um arquivo JSON válido.');
+    }
+  };
+  const patch = (key: number, values: Partial<Draft>) => {
+    setEntries((old) => old.map((entry) => (entry.key === key ? { ...entry, ...values } : entry)));
+    setConfirmed(false);
+  };
+  const split = () => {
+    setEntries((old) =>
+      old.flatMap((entry) =>
+        entry.title === 'Zootopia 1 e 2'
+          ? [
+              { ...entry, title: 'Zootopia' },
+              { ...entry, key: Date.now(), title: 'Zootopia 2' },
+            ]
+          : [entry],
+      ),
+    );
+    setConfirmed(false);
+  };
+  const choose = (result: CatalogResult) => {
+    if (match !== null)
+      patch(match, { title: result.title, kind: result.kind, tmdbId: result.tmdbId });
     setMatch(null);
   };
   const submit = async () => {
@@ -130,14 +129,15 @@ export function ImportDialog({
         qc.invalidateQueries({ queryKey: ['lists'] }),
         qc.invalidateQueries({ queryKey: ['media'] }),
       ]);
-      toast.success('As histórias do documento chegaram.');
+      toast.success('As histórias chegaram ao seu clube.');
       onClose();
-    } catch (e) {
+    } catch (error) {
       setError(
-        `${errorMessage(e)} Os títulos já importados estão salvos. Você pode tentar novamente sem duplicá-los.`,
+        errorMessage(error) +
+          ' Os títulos já importados estão salvos. Você pode tentar novamente sem duplicá-los.',
       );
-      await qc.invalidateQueries({ queryKey: ['media'] });
       await qc.invalidateQueries({ queryKey: ['lists'] });
+      await qc.invalidateQueries({ queryKey: ['media'] });
     } finally {
       setBusy(false);
     }
@@ -147,45 +147,43 @@ export function ImportDialog({
       open={open}
       onClose={busy ? () => {} : onClose}
       title="Do documento para cá"
-      description="Revise os títulos antes de guardar. Nenhuma nota ou progresso existente será alterado."
+      description="Traga sua lista e revise antes de guardar. Ela será compartilhada apenas com este clube."
       className="import-modal"
     >
       <div className="segmented">
-        <button
-          className={mode === 'screenshots' ? 'selected' : ''}
-          disabled={busy}
-          onClick={() => {
-            setMode('screenshots');
-            setEntries(presetDraft());
-            setConfirmed(false);
-          }}
-        >
-          Nossa lista original
-        </button>
         <button
           className={mode === 'paste' ? 'selected' : ''}
           disabled={busy}
           onClick={() => setMode('paste')}
         >
-          Colar outra lista
+          Colar títulos
+        </button>
+        <button
+          className={mode === 'file' ? 'selected' : ''}
+          disabled={busy}
+          onClick={() => setMode('file')}
+        >
+          Importar arquivo
         </button>
       </div>
-      {mode === 'paste' && (
+      {mode === 'paste' ? (
         <div className="stack paste-form">
           <Field label="Um título por linha">
-            <textarea rows={4} value={paste} onChange={(e) => setPaste(e.target.value)} />
+            <textarea rows={4} value={paste} onChange={(event) => setPaste(event.target.value)} />
           </Field>
           <div className="form-row">
             <Field label="Lista de destino">
               <input
                 maxLength={60}
-                required
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
+                onChange={(event) => setCategory(event.target.value)}
               />
             </Field>
             <Field label="Tipo">
-              <select value={kind} onChange={(e) => setKind(e.target.value as 'movie' | 'tv')}>
+              <select
+                value={kind}
+                onChange={(event) => setKind(event.target.value as 'movie' | 'tv')}
+              >
                 <option value="movie">Filmes</option>
                 <option value="tv">Séries / animes</option>
               </select>
@@ -196,100 +194,100 @@ export function ImportDialog({
             Revisar títulos
           </Button>
         </div>
-      )}
-      {mode === 'screenshots' && (
-        <div className="import-note">
-          <p>
-            O Pecadores repetido já foi reunido. Confira remakes e nomes parecidos. A saga Toy Story
-            fica como um título manual até você escolher os filmes.
-          </p>
-          {entries.some((e) => e.title === 'Zootopia 1 e 2') && (
-            <button className="text-button" onClick={split} disabled={busy}>
-              <Split size={14} />
-              Separar Zootopia 1 e 2
-            </button>
-          )}
-        </div>
-      )}
-      {mode === 'screenshots' && preset.isPending && (
-        <p className="muted-note" role="status">
-          Carregando os títulos do documento…
-        </p>
-      )}
-      {mode === 'screenshots' && preset.error && (
-        <div className="stack">
-          <p className="error-note" role="alert">
-            {errorMessage(preset.error)}
-          </p>
-          <Button className="secondary" onClick={() => preset.refetch()}>
-            Tentar novamente
-          </Button>
-        </div>
-      )}
-      <div className="import-list">
-        {entries.map((entry) => (
-          <div className="import-row" key={entry.key}>
-            <input
-              type="checkbox"
-              aria-label={`Importar ${entry.title}`}
-              checked={entry.checked}
-              disabled={busy}
-              onChange={(e) => patch(entry.key, { checked: e.target.checked })}
-            />
-            <div>
-              <input
-                aria-label={`Título ${entry.key + 1}`}
-                value={entry.title}
-                maxLength={200}
-                disabled={busy}
-                onChange={(e) => patch(entry.key, { title: e.target.value, tmdbId: undefined })}
-              />
-              <small>
-                {entry.category} · {entry.tmdbId ? 'Conectado ao catálogo' : 'Título manual'}
-              </small>
-            </div>
-            {entry.tmdbId ? (
-              <Check size={16} className="match-check" />
-            ) : (
-              catalogAvailable && (
-                <button
-                  className="icon-button"
-                  aria-label={`Buscar correspondência de ${entry.title}`}
-                  disabled={busy}
-                  onClick={() => setMatch(entry.key)}
-                >
-                  <Search size={16} />
-                </button>
-              )
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="import-bottom">
-        <label className="check-label">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            disabled={busy}
-            onChange={(e) => setConfirmed(e.target.checked)}
-          />
-          Conferi os títulos. Os não vinculados serão guardados manualmente.
-        </label>
-        {error && (
-          <p className="error-note" role="alert">
-            {error}
-          </p>
-        )}
-        <Button
-          busy={busy}
-          disabled={!confirmed || !selected.length || selected.some((e) => !e.title.trim())}
-          onClick={submit}
+      ) : (
+        <Field
+          label="Escolha sua lista"
+          hint="Arquivo JSON. O conteúdo só será guardado depois da sua revisão."
         >
-          {busy
-            ? `Guardando ${progress} de ${selected.length}…`
-            : `Guardar ${selected.length} títulos`}
-        </Button>
-      </div>
+          <input
+            type="file"
+            accept=".json,application/json"
+            disabled={busy}
+            onChange={(event) => readFile(event.target.files?.[0])}
+          />
+        </Field>
+      )}
+      {entries.some((entry) => entry.title === 'Zootopia 1 e 2') && (
+        <button className="text-button" onClick={split} disabled={busy}>
+          <Split size={14} />
+          Separar Zootopia 1 e 2
+        </button>
+      )}
+      {!!entries.length && (
+        <>
+          <p className="muted-note">
+            Confira nomes parecidos e remakes. Títulos sem correspondência ficam salvos manualmente.
+          </p>
+          <div className="import-list">
+            {entries.map((entry) => (
+              <div className="import-row" key={entry.key}>
+                <input
+                  type="checkbox"
+                  aria-label={'Importar ' + entry.title}
+                  checked={entry.checked}
+                  disabled={busy}
+                  onChange={(event) => patch(entry.key, { checked: event.target.checked })}
+                />
+                <div>
+                  <input
+                    aria-label={'Título ' + (entry.key + 1)}
+                    value={entry.title}
+                    maxLength={200}
+                    disabled={busy}
+                    onChange={(event) =>
+                      patch(entry.key, { title: event.target.value, tmdbId: undefined })
+                    }
+                  />
+                  <small>
+                    {entry.category} · {entry.tmdbId ? 'Conectado ao catálogo' : 'Título manual'}
+                  </small>
+                </div>
+                {entry.tmdbId ? (
+                  <Check size={16} className="match-check" />
+                ) : (
+                  catalogAvailable && (
+                    <button
+                      className="icon-button"
+                      aria-label={'Buscar correspondência de ' + entry.title}
+                      disabled={busy}
+                      onClick={() => setMatch(entry.key)}
+                    >
+                      <Search size={16} />
+                    </button>
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="import-bottom">
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                disabled={busy}
+                onChange={(event) => setConfirmed(event.target.checked)}
+              />
+              Conferi os títulos. Os não vinculados serão guardados manualmente.
+            </label>
+            {error && (
+              <p className="error-note" role="alert">
+                {error}
+              </p>
+            )}
+            <Button
+              busy={busy}
+              disabled={
+                !confirmed || !selected.length || selected.some((entry) => !entry.title.trim())
+              }
+              onClick={submit}
+            >
+              {busy
+                ? 'Guardando ' + progress + ' de ' + selected.length + '…'
+                : 'Guardar ' + selected.length + ' títulos'}
+            </Button>
+          </div>
+        </>
+      )}
       <Modal
         open={match !== null}
         onClose={() => setMatch(null)}

@@ -1,5 +1,5 @@
 {
-  "name": "@watchlist/web",
+  "name": "@cenora/web",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@watchlist/shared": "workspace:*",
+    "@cenora/shared": "workspace:*",
     "zod": "^4.6.6",
     "next": "16.4.0",
     "react": "19.3.0",
