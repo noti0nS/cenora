@@ -92,7 +92,6 @@ test('one shelf: switch between movies and shows, rate a movie, refresh, and bro
     '8.5',
   );
   await rated;
-  await expect(page.getByText('Salvo', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'artifacts/movie-session.png', animations: 'disabled' });
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
@@ -390,22 +389,16 @@ test('the roleta picks a title to open, and the title can be shared as a branded
   await page.getByRole('button', { name: 'Compartilhar' }).click();
   const sheet = page.getByRole('dialog', { name: 'Compartilhar' });
   await expect(sheet.getByRole('img', { name: /Prévia do cartão/ })).toBeVisible();
-  for (const app of ['WhatsApp', 'Instagram', 'Discord', 'X']) {
+  for (const app of ['WhatsApp', 'Instagram', 'Copiar']) {
     await expect(sheet.getByRole('button', { name: app, exact: true })).toBeVisible();
   }
-  await sheet.getByRole('button', { name: 'X', exact: true }).click();
-  await expect
-    .poll(() => page.evaluate(() => (window as any).__opened.at(-1)))
-    .toContain('https://x.com/intent/post?text=');
   await sheet.getByRole('button', { name: 'WhatsApp', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => (window as any).__opened.at(-1)))
     .toContain('https://wa.me/?text=');
-  const download = page.waitForEvent('download');
-  await sheet.getByRole('button', { name: 'Salvar imagem' }).click();
-  expect((await download).suggestedFilename()).toMatch(/.png$/);
+  await expect(sheet.getByRole('button', { name: 'Discord' })).toHaveCount(0);
 });
-test('titles the group is watching, movies and shows, are pinned in an "Assistindo agora" section', async ({
+test('titles the group is watching, movies and shows, get a compact "Assistindo agora" section', async ({
   page,
 }) => {
   await page.goto('/');
@@ -416,27 +409,38 @@ test('titles the group is watching, movies and shows, are pinned in an "Assistin
   const saved = savedAs(page, '"status":"watching"');
   await stage.getByRole('button', { name: 'Rolando', exact: true }).click();
   await saved;
+  const mineSaved = page.waitForResponse(
+    (r) => r.request().method() === 'PUT' && r.url().endsWith('/personal') && r.ok(),
+  );
+  await stage.getByRole('button', { name: 'Assistindo', exact: true }).click();
+  await mineSaved;
   await page.keyboard.press('Escape');
   const section = page.getByRole('region', { name: 'Assistindo agora' });
-  await expect(section.getByRole('button', { name: 'Abrir A Origem', exact: true })).toBeVisible();
-  await expect(page.locator('.card')).toHaveCount(30);
-  await expect(section.getByText('Filme', { exact: true })).toBeVisible();
+  const resume = { name: 'Continuar A Origem', exact: true };
+  await expect(section.getByRole('button', resume)).toBeVisible();
   await page.getByRole('tab', { name: /Séries/ }).click();
-  await expect(section.getByRole('button', { name: 'Abrir A Origem', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Assistindo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(section.getByRole('button', resume)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Só os meus' }).click();
+  const mineSection = page.getByRole('region', { name: 'Você está assistindo' });
+  await expect(mineSection.getByRole('button', resume)).toBeVisible();
+  await page.getByRole('button', { name: 'Só os meus' }).click();
   await page.getByRole('tab', { name: /Filmes/ }).click();
-  await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toBeVisible();
-  await section.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  await section.getByRole('button', resume).click();
   const back = savedAs(page, '"status":"planned"');
   await page
     .getByRole('dialog', { name: 'A Origem' })
     .getByRole('button', { name: 'Vamos ver', exact: true })
     .click();
   await back;
+  const mineBack = page.waitForResponse(
+    (r) => r.request().method() === 'PUT' && r.url().endsWith('/personal') && r.ok(),
+  );
+  await page
+    .getByRole('dialog', { name: 'A Origem' })
+    .getByRole('button', { name: 'Quero ver', exact: true })
+    .click();
+  await mineBack;
   await page.keyboard.press('Escape');
   await expect(section).toHaveCount(0);
 });

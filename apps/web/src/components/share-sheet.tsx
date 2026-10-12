@@ -1,15 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import * as m from 'motion/react-m';
-import { Download, Link2, Loader2, Share2 } from 'lucide-react';
+import { Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { siDiscord, siInstagram, siWhatsapp, siX } from 'simple-icons';
+import { siInstagram, siWhatsapp } from 'simple-icons';
 import {
   blobToDataUrl,
-  canNativeShare,
   copyImage,
   downloadImage,
-  nativeShare,
   renderShareCard,
   shareCaption,
   shareFileName,
@@ -66,11 +64,6 @@ function ShareBody({ card }: { card: ShareCard }) {
   const caption = shareCaption(card);
   const text = `${caption} — ${shareUrl}`;
   const blob = image?.blob;
-  const save = () => {
-    if (!blob) return;
-    downloadImage(blob, name);
-    toast.success('Imagem salva.');
-  };
   /** Web apps cannot attach files to other apps, so the image goes to the clipboard to paste. */
   const pasteInto = async (app: string, go: () => void) => {
     if (!blob) return;
@@ -88,20 +81,13 @@ function ShareBody({ card }: { card: ShareCard }) {
     open(isMobile() ? 'instagram://story-camera' : 'https://www.instagram.com/');
     toast.success('Imagem salva. Escolha ela no seu story.');
   };
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('Link copiado.');
-    } catch {
-      toast.error('Não foi possível copiar o link.');
-    }
-  };
-  const more = async () => {
+  /** Everything else (Discord, X, Telegram...) is a paste away. */
+  const copy = async () => {
     if (!blob) return;
-    try {
-      await nativeShare(card, blob);
-    } catch (e) {
-      toast.error(errorMessage(e));
+    if (await copyImage(blob)) toast.success('Imagem copiada. É só colar.');
+    else {
+      downloadImage(blob, name);
+      toast.success('Imagem salva.');
     }
   };
   return (
@@ -137,34 +123,8 @@ function ShareBody({ card }: { card: ShareCard }) {
         <Target label="Instagram" className="instagram" onClick={instagram}>
           <Brand icon={siInstagram} />
         </Target>
-        <Target
-          label="Discord"
-          className="discord"
-          onClick={() => void pasteInto('Discord', () => open('https://discord.com/channels/@me'))}
-        >
-          <Brand icon={siDiscord} />
-        </Target>
-        <Target
-          label="X"
-          className="x"
-          onClick={() =>
-            void pasteInto('X', () =>
-              open(`https://x.com/intent/post?text=${enc(caption)}&url=${enc(shareUrl)}`),
-            )
-          }
-        >
-          <Brand icon={siX} />
-        </Target>
-        {blob && canNativeShare(blob, name) && (
-          <Target label="Mais" className="neutral" onClick={() => void more()}>
-            <Share2 size={22} />
-          </Target>
-        )}
-        <Target label="Copiar link" className="neutral" onClick={() => void copyLink()}>
-          <Link2 size={22} />
-        </Target>
-        <Target label="Salvar imagem" className="neutral" onClick={save}>
-          <Download size={22} />
+        <Target label="Copiar" className="neutral" onClick={() => void copy()}>
+          <Copy size={22} />
         </Target>
       </div>
     </div>

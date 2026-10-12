@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { ExternalLink, Link2, Loader2, Pencil, Share2, X, Check } from 'lucide-react';
+import { ExternalLink, Link2, Loader2, Pencil, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CatalogResult, Media, MediaDetails } from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
@@ -17,49 +17,6 @@ import { ShowTracker } from './show-tracker';
 import { ManualEditor, PersonDialog } from './title-tools';
 import { ShareSheet } from './share-sheet';
 
-function SaveBadge({ saving }: { saving: boolean }) {
-  const [saved, setSaved] = useState(false);
-  const wasSaving = useRef(false);
-  useEffect(() => {
-    if (saving) {
-      wasSaving.current = true;
-      setSaved(false);
-      return;
-    }
-    if (!wasSaving.current) return;
-    wasSaving.current = false;
-    setSaved(true);
-    const timer = setTimeout(() => setSaved(false), 1600);
-    return () => clearTimeout(timer);
-  }, [saving]);
-  return (
-    <span className="save-badge" role="status" aria-live="polite">
-      <AnimatePresence mode="wait" initial={false}>
-        {saving ? (
-          <m.span
-            key="saving"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
-            <Loader2 size={12} className="spin" />
-            Salvando
-          </m.span>
-        ) : saved ? (
-          <m.span
-            key="saved"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
-            <Check size={12} />
-            Salvo
-          </m.span>
-        ) : null}
-      </AnimatePresence>
-    </span>
-  );
-}
 export function TitleStage({
   id,
   preview,
@@ -247,7 +204,6 @@ function Loaded({
         </p>
         <div className="stage-head-end">
           <ShareButton data={data} clubName={clubName} />
-          <SaveBadge saving={tracking.saving} />
         </div>
       </div>
       <m.h2

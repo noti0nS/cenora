@@ -236,24 +236,3 @@ export async function copyImage(blob: Blob) {
     return false;
   }
 }
-const nativeFile = (blob: Blob, name: string) => new File([blob], name, { type: 'image/png' });
-export function canNativeShare(blob: Blob, name: string) {
-  return (
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [nativeFile(blob, name)] })
-  );
-}
-/** The browser share sheet, used as the fallback for apps without their own button. */
-export async function nativeShare(card: ShareCard, blob: Blob): Promise<'shared' | 'cancelled'> {
-  try {
-    await navigator.share({
-      files: [nativeFile(blob, shareFileName(card))],
-      title: card.title,
-      text: `${shareCaption(card)} — ${shareUrl}`,
-    });
-    return 'shared';
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
-    throw e;
-  }
-}
