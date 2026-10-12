@@ -1,2 +1,9 @@
 TMDB_TOKEN=
 OMDB_KEY=
+# Necessário em produção para o acesso por e-mail (em desenvolvimento há um valor local).
+AUTH_PEPPER=
+# Resend: sem chave em desenvolvimento, os códigos ficam no outbox local (/api/dev/outbox).
+RESEND_API_KEY=
+MAIL_FROM=Cenora <nao-responda@cenora.club>
+# Opcional: liga a verificação do Turnstile no envio de códigos.
+TURNSTILE_SECRET=

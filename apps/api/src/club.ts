@@ -116,7 +116,7 @@ clubRoutes.get('/members', async (c) => {
   return c.json(
     (
       await c.env.DB.prepare(
-        'SELECT id,name,role,active FROM members WHERE club_id=? ORDER BY role DESC,name',
+        'SELECT id,name,role,active,(user_id IS NOT NULL) linked FROM members WHERE club_id=? ORDER BY role DESC,name',
       )
         .bind(c.get('club').id)
         .all()
@@ -146,11 +146,17 @@ clubRoutes.post('/token', async (c) => {
 clubRoutes.post('/members/:id/recovery', async (c) => {
   owner(c);
   const member = await c.env.DB.prepare(
-    'SELECT id FROM members WHERE id=? AND club_id=? AND active=1',
+    'SELECT id,user_id FROM members WHERE id=? AND club_id=? AND active=1',
   )
     .bind(c.req.param('id'), c.get('club').id)
-    .first();
+    .first<{ id: string; user_id: string | null }>();
   if (!member) throw new ApiError(404, 'NOT_FOUND', 'Perfil não encontrado.');
+  if (member.user_id)
+    throw new ApiError(
+      409,
+      'LINKED',
+      'Esta pessoa entra com o próprio acesso. Peça para ela usar o e-mail ou o código de recuperação dela.',
+    );
   const code = token();
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE id=? AND club_id=?').bind(
@@ -164,6 +170,25 @@ clubRoutes.post('/members/:id/recovery', async (c) => {
     ),
   ]);
   return c.json({ recoveryCode: code });
+});
+
+clubRoutes.post('/members/:id/claim', async (c) => {
+  owner(c);
+  const member = await c.env.DB.prepare(
+    'SELECT id FROM members WHERE id=? AND club_id=? AND active=1',
+  )
+    .bind(c.req.param('id'), c.get('club').id)
+    .first();
+  if (!member) throw new ApiError(404, 'NOT_FOUND', 'Perfil não encontrado.');
+  const code = token();
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM member_claims WHERE member_id=?').bind(c.req.param('id')),
+    c.env.DB.prepare(
+      'INSERT INTO member_claims (id,member_id,code_hash,created_by,expires_at,used_at) VALUES (?,?,?,?,?,NULL)',
+    ).bind(id(), c.req.param('id'), await hash(code), c.get('member').id, now + 7 * 86400),
+  ]);
+  return c.json({ claimCode: code });
 });
 
 clubRoutes.delete('/members/:id', async (c) => {

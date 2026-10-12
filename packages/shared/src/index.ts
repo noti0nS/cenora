@@ -16,11 +16,42 @@ export const groupLabels: Record<GroupStatus, string> = {
   watched: 'Assistido',
 };
 export const displayName = z.string().trim().min(2, 'Use pelo menos 2 caracteres.').max(40);
+export const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254, 'Confira o e-mail.')
+  .pipe(z.email('Confira o e-mail.'));
+export const emailCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'Digite os 6 números do código.');
+export const emailStartSchema = z.object({
+  email: emailSchema,
+  mode: z.enum(['login', 'attach']).default('login'),
+  turnstileToken: z.string().trim().max(4096).optional(),
+});
+export const emailVerifySchema = z.object({
+  email: emailSchema,
+  code: emailCodeSchema,
+  mode: z.enum(['login', 'attach']).default('login'),
+  merge: z.boolean().default(false),
+});
+export const claimSchema = z.object({
+  code: z.string().trim().min(12).max(128),
+});
+export const linkSchema = z.object({
+  recoveryCode: z.string().trim().min(12).max(128),
+  name: displayName.optional(),
+  token: z.string().trim().min(12).max(128).optional(),
+});
 export const identitySchema = z.object({
   name: displayName,
   token: z.string().trim().min(12).max(128),
 });
-export const recoverySchema = identitySchema.extend({
+export const recoverySchema = z.object({
+  name: displayName.optional(),
+  token: z.string().trim().min(12).max(128),
   recoveryCode: z.string().trim().min(12).max(128),
 });
 export const createClubSchema = z.object({
@@ -154,9 +185,22 @@ export interface CatalogPage {
   totalPages: number;
   available: boolean;
 }
+export interface SessionUser {
+  id: string;
+  email: string | null;
+}
+export interface ClubOption {
+  memberId: string;
+  clubId: string;
+  name: string;
+  role: 'owner' | 'member';
+}
 export interface SessionState {
+  user: SessionUser | null;
   member: Member | null;
   club: Club | null;
+  clubs: ClubOption[];
+  scoped: boolean;
   catalogAvailable: boolean;
 }
 export interface ImportEntry {

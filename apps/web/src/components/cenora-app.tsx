@@ -35,6 +35,7 @@ import {
   Play,
   Star,
   Dices,
+  ShieldAlert,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
@@ -271,6 +272,25 @@ function App() {
       toast.error(errorMessage(e));
     }
   };
+  const switchClub = async (memberId: string) => {
+    try {
+      const data = await api<{ member: Member; club: Club }>(
+        '/auth/club',
+        json('POST', { memberId }),
+      );
+      qc.setQueryData<SessionState>(['session'], (old) =>
+        old ? { ...old, member: data.member, club: data.club } : old,
+      );
+      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+      navigate({ kind: 'movie', mine: false });
+      setSearch('');
+      setStatus('');
+      void qc.invalidateQueries({ queryKey: ['session'] });
+      toast.success(`Agora você está em ${data.club.name}.`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   // The shelf is unified, so the list behind each title is an implementation detail.
   const ensureList = async () => {
     const existing = lists.data?.[0]?.id;
@@ -326,7 +346,7 @@ function App() {
           <Button onClick={() => session.refetch()}>Tentar novamente</Button>
         </div>
       ) : !member ? (
-        <Access onEnter={enter} />
+        <Access onEnter={enter} session={session.data ?? null} />
       ) : (
         <div className="app-shell" data-kind={kind}>
           <a href="#shelf" className="skip-link">
@@ -417,6 +437,24 @@ function App() {
               >
                 <div className="menu-caption member-name">{member.name}</div>
                 {session.data?.club && <div className="menu-caption">{session.data.club.name}</div>}
+                {(session.data?.clubs.length ?? 0) > 1 && (
+                  <>
+                    <Separator />
+                    <div className="menu-caption">Seus clubes</div>
+                    {session.data!.clubs.map((option) => (
+                      <MenuItem
+                        key={option.memberId}
+                        onSelect={() => void switchClub(option.memberId)}
+                      >
+                        <Clapperboard size={16} />
+                        <span className="menu-club">
+                          {option.name}
+                          {option.memberId === member.id && <small>atual</small>}
+                        </span>
+                      </MenuItem>
+                    ))}
+                  </>
+                )}
                 <MenuItem onSelect={() => setSettings(true)}>
                   <UserRound size={16} />
                   Meu perfil
@@ -446,6 +484,18 @@ function App() {
               </Dropdown>
             </div>
           </header>
+          {session.data?.scoped && (
+            <div className="scoped-banner" role="status">
+              <ShieldAlert size={16} />
+              <span>
+                Este acesso vale só para este clube. Vincule um e-mail ou use seu código de
+                recuperação para ver os outros.
+              </span>
+              <button className="text-button" onClick={() => setSettings(true)}>
+                Abrir meu perfil
+              </button>
+            </div>
+          )}
           <section className="shelf-intro" aria-live="polite">
             <AnimatePresence mode="wait" initial={false}>
               <m.div
@@ -651,6 +701,7 @@ function App() {
             open={settings}
             onClose={() => setSettings(false)}
             member={member}
+            session={session.data ?? null}
             onProfile={(updated) =>
               qc.setQueryData(['session'], { ...session.data, member: updated })
             }

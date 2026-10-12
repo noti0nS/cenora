@@ -16,6 +16,7 @@
     "deploy": "pnpm --filter @cenora/web build && pnpm --filter @cenora/api deploy",
     "deploy:check": "pnpm --filter @cenora/web build && pnpm --filter @cenora/api deploy:check",
     "db:migrate": "node scripts/database.mjs migrate",
+    "recover": "node scripts/recover.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
