@@ -76,7 +76,12 @@ function AttachEmail({ onLinked }: { onLinked: () => void }) {
           {error}
         </p>
       )}
-      <Button type="submit" className="secondary" busy={busy} disabled={!email.includes('@')}>
+      <Button
+        type="submit"
+        className="secondary"
+        busy={busy}
+        disabled={!email.includes('@') || (turnstile.active && !turnstile.token)}
+      >
         <Mail size={15} />
         Enviar código
       </Button>
@@ -185,6 +190,7 @@ export function SettingsDialog({
     void qc.invalidateQueries({ queryKey: ['members'] });
     void qc.invalidateQueries({ queryKey: ['lists'] });
     void qc.invalidateQueries({ queryKey: ['media'] });
+    void qc.invalidateQueries({ queryKey: ['counts'] });
   };
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -373,8 +379,8 @@ export function SettingsDialog({
             )}
             {scoped && (
               <p role="status" className="muted-note">
-                <Shield size={14} /> Este acesso vale só para este clube. Vincule um e-mail ou gere
-                um código de recuperação para liberar os outros.
+                <Shield size={14} /> Este acesso vale só para este clube. Entre com o e-mail já
+                vinculado ou com seu código de recuperação da identidade para liberar os outros.
               </p>
             )}
             {user && !user.email && !attaching && (

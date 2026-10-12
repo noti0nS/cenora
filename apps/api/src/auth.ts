@@ -125,13 +125,13 @@ function requireUnscoped(session: ResolvedSession | null) {
     throw new ApiError(
       403,
       'SCOPED',
-      'Este acesso está limitado a um clube. Use seu código de recuperação ou vincule um e-mail para liberar os outros.',
+      'Este acesso está limitado a um clube. Entre com o e-mail já vinculado ou com seu código de recuperação da identidade para liberar os outros.',
     );
 }
 
 async function mergeIdentities(c: Context<AppEnv>, sourceId: string, targetId: string) {
   const conflicts = await c.env.DB.prepare(
-    'SELECT c.name FROM members s JOIN clubs c ON c.id=s.club_id WHERE s.user_id=? AND s.club_id IN (SELECT club_id FROM members WHERE user_id=?)',
+    'SELECT c.name FROM members s JOIN clubs c ON c.id=s.club_id WHERE s.user_id=? AND s.active=1 AND s.club_id IN (SELECT club_id FROM members WHERE user_id=? AND active=1)',
   )
     .bind(sourceId, targetId)
     .all<{ name: string }>();
@@ -165,13 +165,14 @@ export async function resolveSession(
     .first<SessionRow>();
   if (!row) return null;
 
-  // Sessão de perfil cujo membro já ganhou identidade é promovida no próximo uso.
+  // Uma credencial antiga prova acesso ao perfil, não à identidade inteira.
   if (!row.user_id && row.member_user_id) {
-    await c.env.DB.prepare('UPDATE sessions SET user_id=? WHERE token_hash=?')
-      .bind(row.member_user_id, digest)
+    await c.env.DB.prepare('UPDATE sessions SET user_id=?,scope_member_id=? WHERE token_hash=?')
+      .bind(row.member_user_id, row.member_id, digest)
       .run();
     row.user_id = row.member_user_id;
     row.email = row.member_user_email;
+    row.scope_member_id = row.member_id;
   }
   const user: SessionUser | null = row.user_id ? { id: row.user_id, email: row.email } : null;
   let member: Member | null = null;
@@ -332,6 +333,7 @@ auth.post('/email/start', async (c) => {
     const session = await resolveSession(c);
     if (!session?.user)
       throw new ApiError(401, 'UNAUTHORIZED', 'Entre na sua conta para vincular o e-mail.');
+    requireUnscoped(session);
     if (session.user.email)
       throw new ApiError(409, 'ALREADY_LINKED', 'Sua conta já tem um e-mail vinculado.');
   }
@@ -418,6 +420,7 @@ auth.post('/email/verify', async (c) => {
     const session = await resolveSession(c);
     if (!session?.user)
       throw new ApiError(401, 'UNAUTHORIZED', 'Entre na sua conta para vincular o e-mail.');
+    requireUnscoped(session);
     if (session.user.email)
       throw new ApiError(409, 'ALREADY_LINKED', 'Sua conta já tem um e-mail vinculado.');
     const owner = await c.env.DB.prepare('SELECT id,email FROM users WHERE normalized_email=?')
@@ -427,7 +430,6 @@ auth.post('/email/verify', async (c) => {
       // Sem merge, o código continua valendo para tentar de novo com merge=true.
       if (!input.merge)
         throw new ApiError(409, 'EMAIL_TAKEN', 'Este e-mail já está vinculado a outra conta.');
-      requireUnscoped(session);
       await mergeIdentities(c, session.user.id, owner.id);
       await clear();
       const options = await memberships(c, owner.id);
@@ -708,11 +710,8 @@ auth.post('/recover', async (c) => {
         .first<{ id: string; email: string | null }>()
     : null;
   if (user) {
-    await c.env.DB.prepare('UPDATE users SET last_member_id=? WHERE id=?')
-      .bind(member.id, user.id)
-      .run();
-    await issueSession(c, member.id, user.id);
-    return c.json({ user, member: profile, club: { id: club.id, name: club.name } });
+    await issueSession(c, member.id, user.id, member.id);
+    return c.json({ user, member: profile, club: { id: club.id, name: club.name }, scoped: true });
   }
   await issueSession(c, member.id, null);
   return c.json({ user: null, member: profile, club: { id: club.id, name: club.name } });
@@ -865,10 +864,13 @@ auth.post('/recovery-code', async (c) => {
         await hash(code),
         session.user.id,
       ),
-      c.env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token_hash<>?').bind(
+      c.env.DB.prepare('UPDATE members SET recovery_hash=? WHERE user_id=?').bind(
+        await hash(token()),
         session.user.id,
-        c.get('sessionHash'),
       ),
+      c.env.DB.prepare(
+        'DELETE FROM sessions WHERE (user_id=? OR member_id IN (SELECT id FROM members WHERE user_id=?)) AND token_hash<>?',
+      ).bind(session.user.id, session.user.id, c.get('sessionHash')),
     ]);
     return c.json({ recoveryCode: code, scope: 'identity' });
   }

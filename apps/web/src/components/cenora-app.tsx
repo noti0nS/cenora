@@ -488,8 +488,8 @@ function App() {
             <div className="scoped-banner" role="status">
               <ShieldAlert size={16} />
               <span>
-                Este acesso vale só para este clube. Vincule um e-mail ou use seu código de
-                recuperação para ver os outros.
+                Este acesso vale só para este clube. Entre com o e-mail já vinculado ou com seu
+                código de recuperação da identidade para ver os outros.
               </span>
               <button className="text-button" onClick={() => setSettings(true)}>
                 Abrir meu perfil

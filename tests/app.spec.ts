@@ -1,5 +1,38 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
+
+/** Simula só o widget externo; os fluxos de conta continuam usando o Worker real. */
+async function mockTurnstile(context: BrowserContext) {
+  await context.route('https://challenges.cloudflare.com/turnstile/v0/api.js*', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `
+        const widgets = new Map();
+        let sequence = 0;
+        const complete = (widget) => {
+          const token = 'test-turnstile-' + (++sequence);
+          queueMicrotask(() => widget.options.callback(token));
+        };
+        window.turnstile = {
+          render(element, options) {
+            const id = 'widget-' + (++sequence);
+            element.dataset.testTurnstile = id;
+            const widget = { element, options };
+            widgets.set(id, widget);
+            complete(widget);
+            return id;
+          },
+          reset(id) { complete(widgets.get(id)); },
+          remove(id) {
+            delete widgets.get(id).element.dataset.testTurnstile;
+            widgets.delete(id);
+          },
+        };
+      `,
+    }),
+  );
+}
+
 test.describe.configure({ mode: 'serial' });
 let state: Awaited<ReturnType<BrowserContext['storageState']>>;
 let clubToken = '',
@@ -456,6 +489,7 @@ test('signs in with an email code, creates a club, and switches between clubs', 
 }) => {
   const context = await browser.newContext();
   try {
+    await mockTurnstile(context);
     const page = await context.newPage();
     await page.goto('http://127.0.0.1:8788');
     await page.getByLabel('Seu e-mail').fill('zoe@cenora.test');
@@ -466,6 +500,11 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await page.getByLabel('Como podemos chamar você?').fill('Zoe');
     await page.getByRole('button', { name: 'Criar meu clube' }).click();
     await expect(page.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Adicionar', exact: true }).first().click();
+    await page.getByLabel('Título', { exact: true }).fill('Só no primeiro clube da Zoe');
+    await page.getByRole('button', { name: 'Guardar na estante' }).click();
+    await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await expect(page.locator('.shelf-intro')).toContainText('1 filme na estante');
     await page.getByRole('button', { name: 'Perfil de Zoe' }).click();
     await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
     await page.getByText('Meus clubes').click();
@@ -473,12 +512,17 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await page.getByRole('button', { name: 'Criar clube' }).click();
     await expect(page.getByText('Clube de Zoe B foi criado.')).toBeVisible();
     await page.getByRole('button', { name: 'Fechar' }).click();
-    await page.getByRole('button', { name: 'Perfil de Zoe' }).click();
-    await page.getByRole('menuitem', { name: /Clube de Zoe B/ }).click();
     await expect(page.getByRole('button', { name: 'Perfil de Zoe B' })).toBeVisible();
+    await expect(page.locator('.shelf-intro')).toContainText('Nenhum filme na estante');
+    await expect(
+      page.getByRole('button', { name: 'Abrir Só no primeiro clube da Zoe', exact: true }),
+    ).toHaveCount(0);
     await page.getByRole('button', { name: 'Perfil de Zoe B' }).click();
     await expect(page.getByRole('menuitem', { name: /Clube de Zoe B/ })).toContainText('atual');
     await expect(page.getByRole('menuitem', { name: /Clube de Zoe$/ })).toBeVisible();
+    await page.getByRole('menuitem', { name: /Clube de Zoe$/ }).click();
+    await expect(page.getByRole('button', { name: 'Perfil de Zoe', exact: true })).toBeVisible();
+    await expect(page.locator('.shelf-intro')).toContainText('1 filme na estante');
   } finally {
     await context.close();
   }
@@ -517,6 +561,7 @@ test('a guest profile links an email from settings', async ({ browser }) => {
   const email = 'gina@cenora.test';
   const context = await browser.newContext();
   try {
+    await mockTurnstile(context);
     const page = await context.newPage();
     await page.goto('http://127.0.0.1:8788');
     await page.getByRole('button', { name: 'Criar meu clube' }).click();
@@ -533,6 +578,50 @@ test('a guest profile links an email from settings', async ({ browser }) => {
     await page.getByLabel('Código de 6 dígitos').fill(await outboxCodeFor(email));
     await page.getByRole('button', { name: 'Vincular e-mail' }).click();
     await expect(page.getByText(`Conta: ${email}`)).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test('email resends use a fresh Turnstile token without leaving the code screen', async ({
+  browser,
+}) => {
+  test.skip(
+    !process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    'Build with a Turnstile site key to exercise the widget.',
+  );
+  const context = await browser.newContext();
+  try {
+    await mockTurnstile(context);
+    const sentTokens: string[] = [];
+    await context.route('**/api/auth/email/start', async (route) => {
+      const { turnstileToken } = route.request().postDataJSON();
+      const valid = Boolean(turnstileToken) && !sentTokens.includes(turnstileToken);
+      sentTokens.push(turnstileToken);
+      await route.fulfill({
+        status: valid ? 200 : 403,
+        json: valid
+          ? { ok: true, resendInSeconds: 60 }
+          : { error: { code: 'TURNSTILE', message: 'Token inválido.' } },
+      });
+    });
+    const page = await context.newPage();
+    await page.clock.install();
+    await page.goto('http://127.0.0.1:8788');
+    await page.getByLabel('Seu e-mail').fill('resend@cenora.test');
+    await page.getByRole('button', { name: 'Enviar código' }).click();
+    await expect(page.getByLabel('Código de 6 dígitos')).toBeVisible();
+    await expect(page.locator('[data-test-turnstile]')).toHaveCount(1);
+    await page.clock.runFor(61000);
+    const resend = page.getByRole('button', { name: 'Reenviar código', exact: true });
+    await expect(resend).toBeEnabled();
+    await resend.click();
+    await expect(page.getByRole('button', { name: 'Reenviar em 60s' })).toBeVisible();
+    await expect(page.getByLabel('Código de 6 dígitos')).toBeVisible();
+    expect(sentTokens).toHaveLength(2);
+    expect(sentTokens[0]).toBeTruthy();
+    expect(sentTokens[1]).toBeTruthy();
+    expect(sentTokens[1]).not.toBe(sentTokens[0]);
   } finally {
     await context.close();
   }

@@ -375,7 +375,7 @@ function Door({
   } | null>(null);
   const [showClubCode, setShowClubCode] = useState(false);
   const [showRecoveryCode, setShowRecoveryCode] = useState(false);
-  const turnstile = useTurnstile(mode === 'email' && step === 'email');
+  const turnstile = useTurnstile(mode === 'email');
   useEffect(() => {
     if (resendIn <= 0) return;
     const timer = setTimeout(() => setResendIn((value) => value - 1), 1000);
@@ -507,6 +507,7 @@ function Door({
                 ? 'Entre com seu e-mail e receba um código. Sem senha, sem complicação.'
                 : `Enviamos um código para ${email}.`}
             </p>
+            <div className="turnstile-slot" ref={turnstile.container} />
             {step === 'email' ? (
               <form
                 onSubmit={(e) => {
@@ -527,13 +528,16 @@ function Door({
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </Field>
-                <div className="turnstile-slot" ref={turnstile.container} />
                 {error && (
                   <p role="alert" className="error-note">
                     {error}
                   </p>
                 )}
-                <Button type="submit" busy={busy} disabled={!email.includes('@')}>
+                <Button
+                  type="submit"
+                  busy={busy}
+                  disabled={!email.includes('@') || (turnstile.active && !turnstile.token)}
+                >
                   Enviar código
                   <Mail size={16} />
                 </Button>
@@ -564,7 +568,7 @@ function Door({
                   <button
                     type="button"
                     className="text-button recovery-link"
-                    disabled={busy || resendIn > 0}
+                    disabled={busy || resendIn > 0 || (turnstile.active && !turnstile.token)}
                     onClick={() => void sendCode()}
                   >
                     <RotateCcw size={14} />

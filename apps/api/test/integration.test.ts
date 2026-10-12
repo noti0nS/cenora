@@ -1190,8 +1190,12 @@ describe('guest identities on the same runtime', () => {
     expect(conflict.status).toBe(409);
     expect(((await conflict.json()) as any).error.code).toBe('EMAIL_TAKEN');
   });
-  it('promotes profile sessions once the member gains an identity', async () => {
+  it('keeps promoted legacy profile sessions scoped to their original club', async () => {
     const ana = await createClub('Ana');
+    const other = (await (
+      await request('/auth/create', 'POST', { name: 'Outro clube' }, ana.cookie)
+    ).json()) as any;
+    await request('/auth/club', 'POST', { memberId: ana.member.id }, ana.cookie);
     const identity = (await db
       .prepare('SELECT id FROM users WHERE recovery_hash=?')
       .bind(digest(ana.recoveryCode))
@@ -1214,11 +1218,18 @@ describe('guest identities on the same runtime', () => {
     ).json()) as any;
     expect(after.user.id).toBe(identity.id);
     expect(after.clubs).toHaveLength(1);
+    expect(after.scoped).toBe(true);
+    expect(after.clubs[0].memberId).toBe(ana.member.id);
+    expect(
+      (await request('/auth/club', 'POST', { memberId: other.member.id }, ana.cookie)).status,
+    ).toBe(403);
+    expect((await request('/auth/recovery-code', 'POST', undefined, ana.cookie)).status).toBe(403);
     const row = (await db
-      .prepare('SELECT user_id FROM sessions WHERE member_id=?')
+      .prepare('SELECT user_id,scope_member_id FROM sessions WHERE member_id=?')
       .bind(ana.member.id)
       .first()) as any;
     expect(row.user_id).toBe(identity.id);
+    expect(row.scope_member_id).toBe(ana.member.id);
   });
   it('rotates the identity recovery code and keeps the current device', async () => {
     const ana = await createClub('Ana');
@@ -1287,13 +1298,26 @@ describe('scoped re-access and identity linking', () => {
     );
     expect((await request('/auth/recovery-code', 'POST', undefined, cookie)).status).toBe(403);
     expect((await request('/auth/logout-all', 'POST', undefined, cookie)).status).toBe(403);
-    await request(
+    expect((await request('/auth/create', 'POST', { name: 'Novo clube' }, cookie)).status).toBe(
+      403,
+    );
+    expect(
+      (await request('/auth/join', 'POST', { name: 'Ana', token: ana.clubToken }, cookie)).status,
+    ).toBe(403);
+    expect(
+      (await request('/auth/link', 'POST', { recoveryCode: ana.recoveryCode }, cookie)).status,
+    ).toBe(403);
+    const refusedStart = await request(
       '/auth/email/start',
       'POST',
       { email: 'ana.claim@example.com', mode: 'attach' },
       cookie,
     );
-    const attached = await request(
+    expect(refusedStart.status).toBe(403);
+    expect(((await refusedStart.json()) as any).error.code).toBe('SCOPED');
+    // Mesmo um código válido de um e-mail controlado pelo dono não prova a identidade da Ana.
+    await request('/auth/email/start', 'POST', { email: 'ana.claim@example.com' }, '');
+    const refusedVerify = await request(
       '/auth/email/verify',
       'POST',
       {
@@ -1303,9 +1327,23 @@ describe('scoped re-access and identity linking', () => {
       },
       cookie,
     );
-    expect(attached.status).toBe(200);
-    const unlocked = (await (
+    expect(refusedVerify.status).toBe(403);
+    expect(((await refusedVerify.json()) as any).error.code).toBe('SCOPED');
+    const stillScoped = (await (
       await request('/auth/session', 'GET', undefined, cookie)
+    ).json()) as any;
+    expect(stillScoped.scoped).toBe(true);
+    expect(stillScoped.user.email).toBeNull();
+    expect(stillScoped.clubs.map((option: any) => option.memberId)).toEqual([anaInBeto]);
+    const recovered = await request(
+      '/auth/recover',
+      'POST',
+      { token: ana.clubToken, recoveryCode: ana.recoveryCode },
+      '',
+    );
+    const recoveryCookie = recovered.headers.get('set-cookie')!.split(';')[0];
+    const unlocked = (await (
+      await request('/auth/session', 'GET', undefined, recoveryCookie)
     ).json()) as any;
     expect(unlocked.scoped).toBe(false);
     expect(unlocked.clubs).toHaveLength(2);
@@ -1337,11 +1375,14 @@ describe('scoped re-access and identity linking', () => {
       (await request('/club/members/' + ana.member.id + '/claim', 'POST', undefined, '')).status,
     ).toBe(401);
   });
-  it('adopts an old profile into an account and keeps its recovery code useful', async () => {
+  it('keeps linked legacy credentials scoped and revokes them on identity recovery rotation', async () => {
     const clubId = (
       (await db.prepare('SELECT id FROM clubs ORDER BY rowid LIMIT 1').first()) as any
     ).id;
     const account = await loginByEmail('lia@example.com');
+    const own = (await (
+      await request('/auth/create', 'POST', { name: 'Lia' }, account.cookie)
+    ).json()) as any;
     const legacyId = crypto.randomUUID();
     await db
       .prepare(
@@ -1349,6 +1390,17 @@ describe('scoped re-access and identity linking', () => {
       )
       .bind(legacyId, clubId, 'Lia antiga', 'lia antiga', digest('codigo-da-lia-123456'))
       .run();
+    const recoverLegacy = () =>
+      request(
+        '/auth/recover',
+        'POST',
+        { name: 'Lia antiga', token: clubToken, recoveryCode: 'codigo-da-lia-123456' },
+        '',
+      );
+    const oldSession = await recoverLegacy();
+    const oldCookie = oldSession.headers.get('set-cookie')!.split(';')[0];
+    const unpromotedSession = await recoverLegacy();
+    const unpromotedCookie = unpromotedSession.headers.get('set-cookie')!.split(';')[0];
     const linked = await request(
       '/auth/link',
       'POST',
@@ -1368,15 +1420,32 @@ describe('scoped re-access and identity linking', () => {
       await request('/auth/session', 'GET', undefined, account.cookie)
     ).json()) as any;
     expect(session.member.id).toBe(legacyId);
-    expect(session.clubs).toHaveLength(1);
-    const recovered = await request(
-      '/auth/recover',
-      'POST',
-      { name: 'Lia antiga', token: clubToken, recoveryCode: 'codigo-da-lia-123456' },
-      '',
-    );
+    expect(session.clubs).toHaveLength(2);
+    expect(session.scoped).toBe(false);
+    const recovered = await recoverLegacy();
     expect(recovered.status).toBe(200);
-    expect(((await recovered.json()) as any).user.id).toBe(account.user.id);
+    const recoveredData = (await recovered.json()) as any;
+    expect(recoveredData.user.id).toBe(account.user.id);
+    expect(recoveredData.scoped).toBe(true);
+    const recoveredCookie = recovered.headers.get('set-cookie')!.split(';')[0];
+    for (const cookie of [oldCookie, recoveredCookie]) {
+      const scoped = (await (
+        await request('/auth/session', 'GET', undefined, cookie)
+      ).json()) as any;
+      expect(scoped.scoped).toBe(true);
+      expect(scoped.clubs.map((option: any) => option.memberId)).toEqual([legacyId]);
+      expect(
+        (await request('/auth/club', 'POST', { memberId: own.member.id }, cookie)).status,
+      ).toBe(403);
+      expect((await request('/auth/recovery-code', 'POST', undefined, cookie)).status).toBe(403);
+      expect((await request('/club/lists', 'GET', undefined, cookie)).status).toBe(200);
+    }
+    const rotated = await request('/auth/recovery-code', 'POST', undefined, account.cookie);
+    expect(rotated.status).toBe(200);
+    expect((await recoverLegacy()).status).toBe(401);
+    for (const cookie of [oldCookie, unpromotedCookie, recoveredCookie])
+      expect((await request('/club/lists', 'GET', undefined, cookie)).status).toBe(401);
+    expect((await request('/club/lists', 'GET', undefined, account.cookie)).status).toBe(200);
   });
   it('refuses adoption when the account already has a profile in the club or the profile is taken', async () => {
     const clubId = (
@@ -1512,6 +1581,41 @@ describe('scoped re-access and identity linking', () => {
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as any).error.code).toBe('LINKED');
   });
+  it.each(['source', 'target'])(
+    'merges after the owner removes the %s conflicting profile',
+    async (removed) => {
+      const guest = await createClub('Convidado');
+      const account = await loginByEmail('removed-conflict@example.com');
+      const own = (await (
+        await request('/auth/create', 'POST', { name: 'Conta' }, account.cookie)
+      ).json()) as any;
+      const guestJoined = (await (
+        await request('/auth/join', 'POST', { name: 'Convidado', token: clubToken }, guest.cookie)
+      ).json()) as any;
+      const accountJoined = (await (
+        await request('/auth/join', 'POST', { name: 'Conta', token: clubToken }, account.cookie)
+      ).json()) as any;
+      await request('/auth/club', 'POST', { memberId: own.member.id }, account.cookie);
+      await request('/auth/club', 'POST', { memberId: guest.member.id }, guest.cookie);
+      const payload = { recoveryCode: guest.recoveryCode };
+      expect((await request('/auth/link', 'POST', payload, account.cookie)).status).toBe(409);
+      const removedId = removed === 'source' ? guestJoined.member.id : accountJoined.member.id;
+      const retainedId = removed === 'source' ? accountJoined.member.id : guestJoined.member.id;
+      expect((await request('/club/members/' + removedId, 'DELETE')).status).toBe(200);
+      const merged = await request('/auth/link', 'POST', payload, account.cookie);
+      expect(merged.status).toBe(200);
+      const data = (await merged.json()) as any;
+      expect(data.clubs).toHaveLength(3);
+      expect(data.clubs.some((option: any) => option.memberId === retainedId)).toBe(true);
+      expect(data.clubs.some((option: any) => option.memberId === removedId)).toBe(false);
+      const archived = (await db
+        .prepare('SELECT active,user_id FROM members WHERE id=?')
+        .bind(removedId)
+        .first()) as any;
+      expect(archived).toEqual({ active: 0, user_id: account.user.id });
+      expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    },
+  );
   it('merges the current guest identity into an existing account when attaching its email', async () => {
     const ana = await createClub('Ana');
     const source = (await db
