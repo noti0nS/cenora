@@ -789,6 +789,9 @@ summary {
 .add-modal > .segmented {
   display: flex;
   width: fit-content;
+  max-width: 100%;
+  margin-top: 12px;
+  margin-bottom: 24px;
 }
 .catalog-results {
   display: flex;
@@ -922,9 +925,32 @@ summary {
 .access-card form > .button {
   margin-top: 4px;
 }
-.access-card .recovery-link {
-  font-size: 11px;
+.access-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 20px;
+}
+.access-card .recovery-link {
+  font-size: 12px;
+  margin: 0;
+  min-height: 44px;
+}
+.private-code-input {
+  position: relative;
+}
+.private-code-input input {
+  width: 100%;
+  padding-right: 52px;
+}
+.private-code-input .icon-button {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
 }
 .access-footer {
   font-size: 10px;

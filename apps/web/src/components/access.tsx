@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Film, ArrowRight, KeyRound, Copy, Check } from 'lucide-react';
+import { Film, ArrowRight, KeyRound, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import { displayName, type Member, type Club } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Button, Field, copyCode } from './ui';
@@ -76,6 +76,12 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
       recoveryCode?: string;
       clubToken?: string;
     } | null>(null);
+  const [showClubCode, setShowClubCode] = useState(false);
+  const [showRecoveryCode, setShowRecoveryCode] = useState(false);
+  useEffect(() => {
+    setShowClubCode(false);
+    setShowRecoveryCode(false);
+  }, [mode]);
   const form = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: { name: '', code: '', recoveryCode: '' },
@@ -168,12 +174,27 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
               </Field>
               {mode !== 'create' && (
                 <Field label="Código do clube" hint="Peça o código a quem criou o clube.">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    placeholder="Cole o código aqui"
-                    {...form.register('code')}
-                  />
+                  <div className="private-code-input">
+                    <input
+                      type={showClubCode ? 'text' : 'password'}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      placeholder="Cole o código aqui"
+                      {...form.register('code')}
+                    />
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={
+                        showClubCode ? 'Ocultar código do clube' : 'Mostrar código do clube'
+                      }
+                      aria-pressed={showClubCode}
+                      onClick={() => setShowClubCode(!showClubCode)}
+                    >
+                      {showClubCode ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                   {form.formState.errors.code && (
                     <span className="field-error">{form.formState.errors.code.message}</span>
                   )}
@@ -181,7 +202,28 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
               )}
               {mode === 'recover' && (
                 <Field label="Seu código de recuperação">
-                  <input type="password" autoComplete="off" {...form.register('recoveryCode')} />
+                  <div className="private-code-input">
+                    <input
+                      type={showRecoveryCode ? 'text' : 'password'}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      {...form.register('recoveryCode')}
+                    />
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={
+                        showRecoveryCode
+                          ? 'Ocultar código de recuperação'
+                          : 'Mostrar código de recuperação'
+                      }
+                      aria-pressed={showRecoveryCode}
+                      onClick={() => setShowRecoveryCode(!showRecoveryCode)}
+                    >
+                      {showRecoveryCode ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </Field>
               )}
               {error && (
@@ -198,31 +240,33 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
                 <ArrowRight size={17} />
               </Button>
             </form>
-            <button
-              className="text-button recovery-link"
-              onClick={() => {
-                setMode(mode === 'create' ? 'join' : 'create');
-                setError('');
-                form.clearErrors();
-              }}
-            >
-              {mode === 'create' ? 'Tenho um código de convite' : 'Quero criar um clube'}
-            </button>
-            {mode !== 'create' && (
+            <div className="access-actions">
               <button
                 className="text-button recovery-link"
                 onClick={() => {
-                  setMode(mode === 'recover' ? 'join' : 'recover');
+                  setMode(mode === 'create' ? 'join' : 'create');
                   setError('');
                   form.clearErrors();
                 }}
               >
-                <KeyRound size={14} />
-                {mode === 'recover'
-                  ? 'Quero criar um perfil novo'
-                  : 'Já tenho um perfil em outro dispositivo'}
+                {mode === 'create' ? 'Tenho um código de convite' : 'Quero criar um clube'}
               </button>
-            )}
+              {mode !== 'create' && (
+                <button
+                  className="text-button recovery-link"
+                  onClick={() => {
+                    setMode(mode === 'recover' ? 'join' : 'recover');
+                    setError('');
+                    form.clearErrors();
+                  }}
+                >
+                  <KeyRound size={14} />
+                  {mode === 'recover'
+                    ? 'Quero criar um perfil novo'
+                    : 'Já tenho um perfil em outro dispositivo'}
+                </button>
+              )}
+            </div>
           </>
         )}
         <footer className="access-footer">um filme, uma série, uma boa conversa.</footer>

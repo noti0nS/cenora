@@ -335,3 +335,35 @@ test('a new creator gets a private code and friends join only that club', async 
     await friendContext.close();
   }
 });
+
+test('private codes can be revealed without submitting, with spaced mobile access actions', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:8788');
+  await page.getByRole('button', { name: 'Tenho um código de convite' }).click();
+  const code = page.getByLabel('Código do clube', { exact: true });
+  await code.fill('codigo-privado-teste');
+  await expect(code).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Mostrar código do clube', exact: true }).click();
+  await expect(code).toHaveAttribute('type', 'text');
+  await expect(code).toHaveValue('codigo-privado-teste');
+  await page.getByRole('button', { name: 'Ocultar código do clube', exact: true }).click();
+  await expect(code).toHaveAttribute('type', 'password');
+  const create = await page
+    .getByRole('button', { name: 'Quero criar um clube', exact: true })
+    .boundingBox();
+  const recover = page.getByRole('button', { name: 'Já tenho um perfil em outro dispositivo' });
+  const recoveryLink = await recover.boundingBox();
+  expect(recoveryLink!.y).toBeGreaterThanOrEqual(create!.y + create!.height + 8);
+  await recover.click();
+  const recovery = page.getByLabel('Seu código de recuperação', { exact: true });
+  await recovery.fill('recuperacao-privada-teste');
+  await page.getByRole('button', { name: 'Mostrar código de recuperação', exact: true }).click();
+  await expect(recovery).toHaveAttribute('type', 'text');
+  await page.getByRole('button', { name: 'Quero criar um perfil novo' }).click();
+  await expect(code).toHaveAttribute('type', 'password');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await context.close();
+});
