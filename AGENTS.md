@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Cenora: a private, Portuguese (pt-BR) watchlist for a small friends group. pnpm monorepo, Node >=22.18, pnpm 11 (`packageManager` pins it). Run `pnpm install --frozen-lockfile` first. The `cf` CLI used by `scripts/database.mjs` lives in `apps/api/node_modules`, so scripts fail before install.
+Cenora: a private, Portuguese (pt-BR) movie and show shelf for a small friends group. pnpm monorepo, Node >=22.18, pnpm 11 (`packageManager` pins it). Run `pnpm install --frozen-lockfile` first. The `cf` CLI used by `scripts/database.mjs` lives in `apps/api/node_modules`, so scripts fail before install.
 
 ## Layout
 
@@ -9,7 +9,7 @@ Cenora: a private, Portuguese (pt-BR) watchlist for a small friends group. pnpm 
 - `packages/shared`: `@cenora/shared` (`.` and `./import`). Consumed as TS source, no build step.
 - `scripts/database.mjs`: D1 migrations, wired through `pnpm db:migrate`. Clubs are created freely in the UI; there is no bootstrap/setup code.
 - `tests/`: Playwright e2e. `apps/api/test/`: Vitest integration tests.
-- Working tree has many uncommitted changes (including a new `apps/web/src/components/cenora-app.tsx` and a deleted `watchlist-app.tsx`). Don't assume HEAD matches the code.
+- UI is one unified screen in `apps/web/src/components/cenora-app.tsx` (Filmes/Séries switch). Movie detail is `movie-session.tsx` (rating dial in `rating-dial.tsx`), show detail is `show-tracker.tsx`, both inside `title-stage.tsx`. Tracking autosaves via `lib/tracking.ts`. Styles: `globals.css` (tokens, shared primitives, access/settings/import) plus `cenora.css`. Avoid class names that match Tailwind utilities (e.g. `.ring`). The UI no longer exposes lists; `ensureList` in the app uses the club's first list behind the scenes. `/media` accepts `kind`, and `/media/counts` returns per-kind totals.
 
 ## Commands
 
@@ -40,7 +40,7 @@ Cenora: a private, Portuguese (pt-BR) watchlist for a small friends group. pnpm 
 ## Conventions
 
 - User-facing text is pt-BR (errors, labels, status values). Keep new strings in Portuguese.
-- Product scope is deliberately narrow: no dashboards, voting, scheduling, comments, or extra navigation.
+- Product scope is deliberately narrow: no dashboards, voting, scheduling, comments, or extra navigation. Movies and shows must stay distinct experiences (session vs. season tracker).
 - Every authenticated request derives its club from the server session. Scope members, lists, media, imports, exports, and administrative operations to that club; never authorize from a submitted club ID.
 - Permissions: members edit only their own rating and progress. Only the owner deletes lists or manages members. Revision checks guard edits, so keep them when changing write paths.
 - Catalog providers (TMDB, OMDb) are optional and failures must not block the app. Cache TTLs are documented in `README.md`.

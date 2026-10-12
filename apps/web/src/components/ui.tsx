@@ -5,6 +5,7 @@ import { Children, cloneElement, isValidElement, useId } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
+import * as m from 'motion/react-m';
 export function Modal({
   open,
   onClose,
@@ -164,4 +165,41 @@ export async function copyCode(code: string) {
   } catch {
     toast.error('Selecione o código para copiar.');
   }
+}
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+  className,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  label: string;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-label={label} className={clsx('segmented-pill', className)}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          className={value === option.value ? 'selected' : ''}
+          onClick={() => onChange(option.value)}
+        >
+          {value === option.value && (
+            <m.span
+              layoutId={`${id}-pill`}
+              className="segmented-thumb"
+              transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+            />
+          )}
+          <span className="segmented-label">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
 }

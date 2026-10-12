@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CatalogPage, CatalogResult, Watchlist } from '@cenora/shared';
+import type { CatalogPage, CatalogResult } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
-import { Modal, Field, Button } from './ui';
+import { Modal, Field, Button, Segmented } from './ui';
 import { Poster } from './poster';
 
 export function CatalogSearch({
@@ -54,7 +54,13 @@ export function CatalogSearch({
           data-autofocus
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Busque um filme, anime ou série"
+          placeholder={
+            kind === 'tv'
+              ? 'Busque uma série ou anime'
+              : kind === 'movie'
+                ? 'Busque um filme'
+                : 'Busque um filme, anime ou série'
+          }
           aria-label="Buscar no catálogo"
         />
       </div>
@@ -64,13 +70,11 @@ export function CatalogSearch({
           pode adicionar manualmente.
         </p>
       ) : q.length < 2 ? (
-        <p className="muted-note">
-          Comece com um título. Escolha a história certa pelo ano e pelo tipo.
-        </p>
+        <p className="muted-note">Comece com um título. Confira o ano para escolher o certo.</p>
       ) : search.isPending ? (
         <p className="inline-loading">
           <Loader2 size={16} className="spin" />
-          Procurando histórias…
+          Procurando…
         </p>
       ) : search.error ? (
         <p role="alert" className="error-note">
@@ -128,58 +132,57 @@ export function CatalogSearch({
 export function AddMedia({
   open,
   onClose,
-  lists,
-  initialList,
+  defaultKind,
+  ensureList,
   catalogAvailable,
   onAdded,
 }: {
   open: boolean;
   onClose: () => void;
-  lists: Watchlist[];
-  initialList: string;
+  defaultKind: 'movie' | 'tv';
+  ensureList: () => Promise<string>;
   catalogAvailable: boolean;
-  onAdded: (id: string) => void;
+  onAdded: (id: string, kind: 'movie' | 'tv') => void;
 }) {
   const qc = useQueryClient();
   const [manual, setManual] = useState(false),
-    [listId, setListId] = useState(initialList),
     [title, setTitle] = useState(''),
-    [kind, setKind] = useState<'movie' | 'tv'>('movie'),
+    [kind, setKind] = useState<'movie' | 'tv'>(defaultKind),
     [year, setYear] = useState(''),
     [synopsis, setSynopsis] = useState(''),
     [poster, setPoster] = useState(''),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     if (open) {
-      setListId(initialList || lists[0]?.id || '');
       setManual(!catalogAvailable);
       setTitle('');
-      setKind(lists.find((l) => l.id === initialList)?.icon === 'tv' ? 'tv' : 'movie');
+      setKind(defaultKind);
       setYear('');
       setSynopsis('');
       setPoster('');
     }
-  }, [open, initialList, catalogAvailable]);
-  const added = async (id: string) => {
+  }, [open, defaultKind, catalogAvailable]);
+  const added = async (id: string, addedKind: 'movie' | 'tv') => {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['media'] }),
+      qc.invalidateQueries({ queryKey: ['counts'] }),
       qc.invalidateQueries({ queryKey: ['lists'] }),
     ]);
-    toast.success('Mais uma boa história na lista.');
-    onAdded(id);
+    toast.success(addedKind === 'tv' ? 'Série na estante.' : 'Filme na estante.');
+    onAdded(id, addedKind);
   };
   const select = async (r: CatalogResult) => {
-    if (!listId) return;
     setBusy(true);
     try {
-      const result = r.existingId
-        ? (await api(`/club/lists/${listId}/items`, json('POST', { mediaId: r.existingId })),
-          { id: r.existingId })
-        : await api<{ id: string }>(
-            '/media/catalog',
-            json('POST', { tmdbId: r.tmdbId, kind: r.kind, listId }),
-          );
-      await added(result.id);
+      if (r.existingId) {
+        await added(r.existingId, r.kind);
+        return;
+      }
+      const result = await api<{ id: string }>(
+        '/media/catalog',
+        json('POST', { tmdbId: r.tmdbId, kind: r.kind, listId: await ensureList() }),
+      );
+      await added(result.id, r.kind);
     } finally {
       setBusy(false);
     }
@@ -196,10 +199,10 @@ export function AddMedia({
           year: year ? Number(year) : null,
           synopsis,
           posterUrl: poster || null,
-          listId,
+          listId: await ensureList(),
         }),
       );
-      await added(result.id);
+      await added(result.id, kind);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -210,24 +213,19 @@ export function AddMedia({
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      title="Mais uma boa história"
-      description="Encontre um título e guarde para depois."
+      title="Adicionar à estante"
+      description="Encontre um filme ou uma série para guardar."
       className="add-modal"
     >
-      <div className="destination">
-        <span>Guardar em</span>
-        <select
-          aria-label="Lista de destino"
-          value={listId}
-          onChange={(e) => setListId(e.target.value)}
-        >
-          {lists.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Segmented
+        label="Tipo de título"
+        value={kind}
+        options={[
+          { value: 'movie', label: 'Filme' },
+          { value: 'tv', label: 'Série' },
+        ]}
+        onChange={setKind}
+      />
       <div className="segmented">
         <button className={!manual ? 'selected' : ''} onClick={() => setManual(false)}>
           Buscar no catálogo
@@ -245,27 +243,19 @@ export function AddMedia({
               maxLength={200}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="O nome da história"
+              placeholder="O nome do título"
             />
           </Field>
-          <div className="form-row">
-            <Field label="Tipo">
-              <select value={kind} onChange={(e) => setKind(e.target.value as 'movie' | 'tv')}>
-                <option value="movie">Filme</option>
-                <option value="tv">Série / anime episódico</option>
-              </select>
-            </Field>
-            <Field label="Ano · opcional">
-              <input
-                type="number"
-                min={1888}
-                max={2100}
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                placeholder="2026"
-              />
-            </Field>
-          </div>
+          <Field label="Ano · opcional">
+            <input
+              type="number"
+              min={1888}
+              max={2100}
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              placeholder="2026"
+            />
+          </Field>
           <details className="disclosure">
             <summary>Sinopse e pôster · opcionais</summary>
             <div className="stack">
@@ -287,13 +277,13 @@ export function AddMedia({
               </Field>
             </div>
           </details>
-          <Button type="submit" busy={busy} disabled={!listId}>
-            Guardar na lista
+          <Button type="submit" busy={busy}>
+            Guardar na estante
             <ArrowRight size={16} />
           </Button>
         </form>
       ) : (
-        <CatalogSearch onSelect={select} catalogAvailable={catalogAvailable} />
+        <CatalogSearch onSelect={select} catalogAvailable={catalogAvailable} kind={kind} />
       )}
     </Modal>
   );

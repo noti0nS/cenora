@@ -123,13 +123,18 @@ mediaRoutes.get('/', async (c) => {
     query = normalizeName(c.req.query('q') || '').slice(0, 100);
   const list = c.req.query('list'),
     mine = c.req.query('mine') === 'true',
-    status = c.req.query('status');
+    status = c.req.query('status'),
+    kind = c.req.query('kind');
   const filters: string[] = ['m.club_id=?'],
     args: unknown[] = [c.get('club').id, c.get('member').id, c.get('club').id];
   if (list) {
     await requireList(c, list);
     filters.push('EXISTS (SELECT 1 FROM list_items li WHERE li.media_id=m.id AND li.list_id=?)');
     args.push(list);
+  }
+  if (kind === 'movie' || kind === 'tv') {
+    filters.push('m.kind=?');
+    args.push(kind);
   }
   if (mine) filters.push('p.member_id IS NOT NULL');
   if (query) {
@@ -165,6 +170,16 @@ mediaRoutes.get('/', async (c) => {
     items: result.results.slice(0, 60).map(toMedia),
     nextOffset: result.results.length > 60 ? offset + 60 : null,
   });
+});
+mediaRoutes.get('/counts', async (c) => {
+  const rows = await c.env.DB.prepare(
+    'SELECT kind,COUNT(*) count FROM media WHERE club_id=? GROUP BY kind',
+  )
+    .bind(c.get('club').id)
+    .all<{ kind: 'movie' | 'tv'; count: number }>();
+  const counts = { movie: 0, tv: 0 };
+  for (const row of rows.results) counts[row.kind] = row.count;
+  return c.json(counts);
 });
 mediaRoutes.get('/search', async (c) => {
   const q = (c.req.query('q') || '').trim().slice(0, 100);
@@ -268,6 +283,7 @@ mediaRoutes.get('/:id', async (c) => {
     posterUrl: metadata.posterUrl || media.posterUrl,
     tmdbRating: metadata.tmdbRating ?? media.tmdbRating,
     runtime: metadata.runtime || null,
+    seasons: metadata.seasons || [],
     genres: metadata.genres || [],
     cast: metadata.cast || [],
     imdbId: metadata.imdbId || null,

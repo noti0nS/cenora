@@ -1,19 +1,22 @@
 'use client';
 import { useState } from 'react';
+import * as m from 'motion/react-m';
 import type { Media, CatalogResult } from '@cenora/shared';
 import { clsx } from 'clsx';
 export function Poster({
   media,
   className,
+  layoutId,
 }: {
   media: Pick<Media, 'title' | 'posterUrl' | 'kind' | 'year'> | CatalogResult;
   className?: string;
+  layoutId?: string;
 }) {
   const [failed, setFailed] = useState(false);
   let seed = 0;
   for (const ch of media.title) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
   return (
-    <div className={clsx('poster', className)}>
+    <m.div layoutId={layoutId} className={clsx('poster', className)}>
       {media.posterUrl && !failed ? (
         <img
           src={media.posterUrl}
@@ -24,7 +27,7 @@ export function Poster({
         />
       ) : (
         <div className={`poster-fallback palette-${seed % 8}`} aria-hidden="true">
-          <span className="poster-edition">UMA HISTÓRIA PARA COMPARTILHAR</span>
+          <span className="poster-edition">CENORA</span>
           <div className="poster-orbit" />
           <strong>{media.title}</strong>
           <span className="poster-bottom">
@@ -33,6 +36,6 @@ export function Poster({
           </span>
         </div>
       )}
-    </div>
+    </m.div>
   );
 }

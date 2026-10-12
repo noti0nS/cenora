@@ -1,6 +1,6 @@
 # Cenora
 
-Private Portuguese watchlists for friends. Anyone can create a club in the app and receive a unique private invite code. The main screen is a quiet poster gallery: select a list, search, add a title, or open your profile. Ratings, checkpoints, streaming availability, and management controls appear when you need them.
+Cenora is a private Portuguese shelf of movies and shows for friends. Anyone can create a club in the app and receive a unique private invite code. There is one screen: a **Filmes / Séries** switch over a poster shelf. A movie opens a _session_ (status plus a draggable half-point rating dial, with friends' ratings on a shared scale). A show opens a _tracker_ (progress ring, season rail, tappable episodes, with separate personal and group progress). Changes save automatically. Custom lists are no longer shown; each club keeps a hidden default list for the API.
 
 ## Run locally
 
@@ -53,7 +53,7 @@ The typographic covers are intentional fallbacks for manual entries without post
 
 Open the profile menu → **Importar títulos**. Paste a newline-separated list, or choose **Importar arquivo**. Your original screenshot titles are available privately in `imports/google-docs.json`: load that file to review all three categories, preserve order, and merge the repeated Pecadores. These personal titles are not served as a preset to other clubs.
 
-Use **Separar Zootopia 1 e 2**, edit ambiguous names, and optionally select catalog matches by year and type. Saga Toy Story remains a manual placeholder until its individual films are selected. Unmatched entries are saved manually and can be linked later from **Listas e opções** in title details.
+Use **Separar Zootopia 1 e 2**, edit ambiguous names, and optionally select catalog matches by year and type. Saga Toy Story remains a manual placeholder until its individual films are selected. Unmatched entries are saved manually and can be linked later from **Conectar ao catálogo** in title details.
 
 Imports run in small batches to stay within the free Worker/D1 request limits. Repeating an import does not duplicate identical source entries. Linking a manual entry preserves its ID, ratings, and progress. If the catalog record already exists separately, the app asks you to resolve the duplicate instead of silently merging two people's data.
 
@@ -61,7 +61,7 @@ The same screen also accepts newline-separated lists. The club owner can export 
 
 ## Access and collaboration
 
-The Cenora rename retains the original session-cookie and browser-preference keys, preserving existing logins, names, themes, and selected lists.
+The redesign keeps the original session-cookie and browser-preference keys (`watchlist:*`), preserving existing logins, names and themes. Dark is the default theme.
 
 - Anyone can create a separate private club. Each club has its own unique, high-entropy invite token; each membership has a separate personal recovery code.
 - Members, lists, media, ratings, imports, and administrative operations are scoped to the club authenticated by the session. Another club cannot read or change them, even with a known record ID.
@@ -71,7 +71,7 @@ The Cenora rename retains the original session-cookie and browser-preference key
 - Club tokens, recovery codes, and session tokens are stored as SHA-256 hashes. Raw access and recovery codes are displayed only at creation/rotation.
 - Members maintain shared lists and group progress, but can edit only their own rating and personal progress. Only the owner can delete lists or administer members.
 - Rotating a club token revokes that club's other sessions; other clubs remain unaffected. Replacing a recovery code revokes that membership's other sessions.
-- A shared title has one group progress record and one tracking/rating record per member, even when it appears in several lists. Removing list membership preserves ratings and checkpoints.
+- A shared title has one group progress record and one tracking/rating record per member, even when it still belongs to several legacy lists.
 - Revision checks protect personal and shared edits against accidental overwrites.
 
 If a friend loses a recovery code, the owner can generate a replacement from **Configurações do clube → Quem faz parte**. If the owner loses access, a Cloudflare administrator can reset the owner's hashed recovery code through D1; the existing club data should be preserved.

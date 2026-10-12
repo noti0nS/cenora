@@ -399,6 +399,23 @@ describe('private club on a real Worker + D1 runtime', () => {
     ).json()) as any;
     expect(mine.personal.rating).toBe(8.5);
   });
+  it('filters the unified library by kind and counts movies and shows per club', async () => {
+    await manual('movie', 'Filme da turma');
+    await manual('tv', 'Série da turma');
+    const read = async (query: string, cookie?: string) =>
+      ((await (await request(`/media${query}`, 'GET', undefined, cookie)).json()) as any).items.map(
+        (item: any) => item.title,
+      );
+    expect(await read('?kind=movie')).toEqual(['Filme da turma']);
+    expect(await read('?kind=tv')).toEqual(['Série da turma']);
+    expect((await read('')).sort()).toEqual(['Filme da turma', 'Série da turma']);
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 1, tv: 1 });
+    const other = await createClub('Outro');
+    expect(await (await request('/media/counts', 'GET', undefined, other.cookie)).json()).toEqual({
+      movie: 0,
+      tv: 0,
+    });
+  });
   it('validates rating increments and rejects movie checkpoints', async () => {
     const title = await manual();
     expect(

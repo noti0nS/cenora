@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 test.describe.configure({ mode: 'serial' });
 let state: Awaited<ReturnType<BrowserContext['storageState']>>;
@@ -25,7 +25,7 @@ test.beforeAll(async ({ browser }) => {
   recoveryCode = codes[1];
   await page.getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' }).check();
   await page.getByRole('button', { name: 'Ir para a Cenora' }).click();
-  await expect(page.getByRole('button', { name: 'Selecionar lista' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Filmes/ })).toBeVisible();
   await page.getByRole('button', { name: 'Trazer nossa lista do documento' }).click();
   await expect(page.getByRole('heading', { name: 'Do documento para cá' })).toBeVisible();
   await page.getByRole('button', { name: 'Importar arquivo', exact: true }).click();
@@ -38,34 +38,72 @@ test.beforeAll(async ({ browser }) => {
     .check();
   await page.getByRole('button', { name: 'Guardar 41 títulos' }).click();
   await expect(page.getByRole('heading', { name: 'Do documento para cá' })).not.toBeVisible();
-  await expect(page.locator('.media-card')).toHaveCount(30);
+  await expect(page.locator('.card')).toHaveCount(30);
   state = await context.storageState();
   await context.close();
 });
 test.beforeEach(async ({ context }) => {
   await context.addCookies(state.cookies);
 });
-test('quiet gallery, details, personal rating, refresh, and browser Back', async ({ page }) => {
+const detailUrl = /\/api\/media\/[0-9a-f-]{36}$/;
+/** Resolves when a tracking write containing `fragment` has been accepted by the API. */
+const savedAs = (page: Page, fragment: string) =>
+  page.waitForResponse(
+    (r) =>
+      r.request().method() === 'PUT' &&
+      /\/(personal|group)$/.test(r.url()) &&
+      (r.request().postData() || '').includes(fragment) &&
+      r.ok(),
+  );
+test('one shelf: switch between movies and shows, rate a movie, refresh, and browser Back', async ({
+  page,
+}) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/');
-  await expect(page.locator('.media-card')).toHaveCount(30);
-  await expect(page.locator('.header-actions')).toBeVisible();
-  await mkdir('artifacts', { recursive: true });
-  await page.screenshot({
-    path: 'artifacts/gallery-desktop.png',
-    fullPage: true,
-    animations: 'disabled',
+  page.on('console', (m) => {
+    if (['error', 'warning'].includes(m.type()) && !m.text().includes('favicon')) {
+      errors.push(`${m.type()}: ${m.text()}`);
+    }
   });
+  await page.goto('/');
+  await expect(page.locator('.card')).toHaveCount(30);
+  await expect(page.getByRole('tab', { name: /Filmes/ })).toHaveAttribute('aria-selected', 'true');
+  await mkdir('artifacts', { recursive: true });
+  await page.screenshot({ path: 'artifacts/shelf-movies.png', animations: 'disabled' });
+  await page.getByRole('tab', { name: /Séries/ }).click();
+  await expect(page.locator('.card')).toHaveCount(11);
+  await expect(page.locator('.card.kind-tv')).toHaveCount(11);
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'artifacts/shelf-shows.png', animations: 'disabled' });
+  await page.getByRole('tab', { name: /Filmes/ }).click();
+  await expect(page.locator('.card')).toHaveCount(30);
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
-  await page.getByLabel('Minha nota · /10').fill('8.5');
-  await page.getByLabel('Meu progresso', { exact: true }).selectOption('watched');
-  await page.getByRole('button', { name: 'Guardar meu progresso' }).click();
-  await expect(page.getByText('Seu progresso foi guardado.')).toBeVisible();
+  await expect(page.getByRole('slider')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Já vi', exact: true }).click();
+  const track = page.locator('.dial-track');
+  await expect(track).toBeVisible();
+  await page.waitForTimeout(600);
+  const box = (await track.boundingBox())!;
+  const rated = savedAs(page, '"rating":8.5');
+  await page.mouse.click(box.x + box.width * 0.85, box.y + box.height / 2);
+  await expect(page.getByRole('slider', { name: 'Minha nota' })).toHaveAttribute(
+    'aria-valuenow',
+    '8.5',
+  );
+  await rated;
+  await expect(page.getByText('Salvo', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/movie-session.png', animations: 'disabled' });
   await page.reload();
   await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
-  await expect(page.getByLabel('Minha nota · /10')).toHaveValue('8.5');
+  await expect(page.getByRole('slider', { name: 'Minha nota' })).toHaveAttribute(
+    'aria-valuenow',
+    '8.5',
+  );
+  await expect(page.getByRole('button', { name: 'Já vi', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.getByRole('button', { name: 'Fechar', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
@@ -73,64 +111,158 @@ test('quiet gallery, details, personal rating, refresh, and browser Back', async
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(errors).toEqual([]);
 });
-test('mobile gallery and full-screen details fit 360px, with reduced motion and keyboard focus', async ({
+test('rating dial works from the keyboard and can be cleared', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  const slider = page.getByRole('slider', { name: 'Minha nota' });
+  await expect(slider).toHaveAttribute('aria-valuenow', '8.5');
+  await slider.focus();
+  const low = savedAs(page, '"rating":1.5');
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '9');
+  await page.keyboard.press('End');
+  await expect(slider).toHaveAttribute('aria-valuenow', '10');
+  await page.keyboard.press('Home');
+  await expect(slider).toHaveAttribute('aria-valuenow', '0.5');
+  await page.keyboard.press('PageUp');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1.5');
+  await low;
+  const cleared = savedAs(page, '"rating":null');
+  await page.getByRole('button', { name: 'Limpar nota' }).click();
+  await expect(slider).not.toHaveAttribute('aria-valuenow', /.+/);
+  await cleared;
+  await slider.focus();
+  const final = savedAs(page, '"rating":6.5');
+  await page.keyboard.press('End');
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuenow', '6.5');
+  await final;
+});
+test('mobile shelf and full-screen stage fit 360px, with reduced motion and keyboard focus', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
-  await expect(page.locator('.media-card')).toHaveCount(30);
+  await expect(page.locator('.card')).toHaveCount(30);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(
     await page
-      .locator('.gallery')
+      .locator('.shelf')
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
   ).toBe(2);
   await expect
     .poll(async () => {
-      const posters = page.locator('.gallery .poster');
+      const posters = page.locator('.shelf .poster');
       const first = await posters.nth(0).boundingBox();
       const second = await posters.nth(1).boundingBox();
       return Math.abs((first?.y || 0) - (second?.y || 0));
     })
     .toBeLessThan(1);
-  await page.screenshot({ path: 'artifacts/gallery-mobile.png', animations: 'disabled' });
+  await page.screenshot({ path: 'artifacts/shelf-mobile.png', animations: 'disabled' });
   await page.keyboard.press('Tab');
   await expect(page.getByText('Ir para os títulos')).toBeFocused();
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
-  const box = await page.getByRole('dialog', { name: 'A Origem' }).boundingBox();
-  expect(box?.width).toBe(360);
-  await page.screenshot({ path: 'artifacts/details-mobile.png', animations: 'disabled' });
+  await expect
+    .poll(async () => (await page.getByRole('dialog', { name: 'A Origem' }).boundingBox())?.width)
+    .toBe(360);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'artifacts/movie-mobile.png', animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.getByRole('button', { name: 'Perfil de Ana' }).click();
-  await page.getByRole('menuitem', { name: 'Usar tema escuro' }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('menuitem', { name: 'Usar tema claro' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('.card')).toHaveCount(30);
+  await page.screenshot({ path: 'artifacts/shelf-light-mobile.png', animations: 'disabled' });
+  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'artifacts/movie-light-mobile.png', animations: 'disabled' });
 });
-test('catalog-unavailable manual entry, custom list, and TV checkpoint', async ({ page }) => {
+test('catalog-unavailable manual show keeps a simple counter that survives a refresh', async ({
+  page,
+}) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Selecionar lista' }).click();
-  await page.getByRole('menuitem', { name: 'Criar lista' }).click();
-  await page.getByLabel('Nome da lista').fill('Domingo à noite');
-  await page.getByRole('button', { name: 'Salvar lista' }).click();
-  await expect(page.getByRole('button', { name: 'Selecionar lista' })).toContainText(
-    'Domingo à noite',
-  );
   await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await page.getByRole('button', { name: 'Série', exact: true }).click();
   await page.getByLabel('Título', { exact: true }).fill('Nossa série de domingo');
-  await page.getByLabel('Tipo', { exact: true }).selectOption('tv');
-  await page.getByRole('button', { name: 'Guardar na lista' }).click();
+  await page.getByRole('button', { name: 'Guardar na estante' }).click();
   await expect(page.getByRole('dialog', { name: 'Nossa série de domingo' })).toBeVisible();
-  await page.getByLabel('Temporada', { exact: true }).fill('2');
-  await page.getByLabel('Episódio', { exact: true }).fill('4');
-  await page.getByRole('button', { name: 'Guardar meu progresso' }).click();
-  await expect(page.getByText('Seu progresso foi guardado.')).toBeVisible();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-kind', 'tv');
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: 'Vi mais um episódio' }).click();
+  }
+  const counted = savedAs(page, '"season":2,"episode":3');
+  await page.getByRole('button', { name: 'Mais temporada' }).click();
+  await expect(page.locator('.progress-ring-center strong')).toHaveText('T2 · E3');
+  await counted;
   await page.reload();
-  await expect(page.getByLabel('Temporada', { exact: true })).toHaveValue('2');
-  await expect(page.getByLabel('Episódio', { exact: true })).toHaveValue('4');
+  await expect(page.locator('.progress-ring-center strong')).toHaveText('T2 · E3');
+  await expect(page.getByRole('status', { name: 'Temporada' })).toHaveText('2');
+  await expect(page.getByRole('status', { name: 'Episódio' })).toHaveText('3');
+});
+test('season tracker marks episodes up to a point, advances, undoes, and tracks the group apart', async ({
+  page,
+}) => {
+  await page.route(detailUrl, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...data,
+        seasons: [
+          { number: 1, name: 'Temporada 1', episodes: 8 },
+          { number: 2, name: 'Temporada 2', episodes: 10 },
+        ],
+      },
+    });
+  });
+  await page.goto('/?kind=tv');
+  await page.getByRole('button', { name: 'Abrir Nossa série de domingo', exact: true }).click();
+  const ring = page.locator('.progress-ring-center');
+  await expect(ring.locator('strong')).toHaveText('T2 · E3');
+  await expect(ring.locator('small')).toHaveText('11 de 18 episódios');
+  await page.getByRole('button', { name: 'Vi o T2 · E4' }).click();
+  await expect(ring.locator('strong')).toHaveText('T2 · E4');
+  await page.getByRole('button', { name: 'Episódio 4', exact: true }).click();
+  await expect(ring.locator('strong')).toHaveText('T2 · E3');
+  await page.getByRole('button', { name: 'Temporada 1', exact: true }).click();
+  const personal = savedAs(page, '"season":1,"episode":5');
+  await page.getByRole('button', { name: 'Episódio 5', exact: true }).click();
+  await expect(ring.locator('strong')).toHaveText('T1 · E5');
+  await expect(ring.locator('small')).toHaveText('5 de 18 episódios');
+  await expect(page.getByRole('button', { name: 'Episódio 5', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: 'Episódio 6', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await personal;
+  await page.screenshot({ path: 'artifacts/show-tracker.png', animations: 'disabled' });
+  await page.getByRole('button', { name: 'O grupo', exact: true }).click();
+  await expect(ring.locator('strong')).toHaveText('Não começou');
+  const shared = savedAs(page, '"season":1,"episode":2');
+  await page.getByRole('button', { name: 'Episódio 2', exact: true }).click();
+  await expect(ring.locator('strong')).toHaveText('T1 · E2');
+  await shared;
+  await page.reload();
+  await expect(ring.locator('strong')).toHaveText('T1 · E5');
+  await page.getByRole('button', { name: 'O grupo', exact: true }).click();
+  await expect(ring.locator('strong')).toHaveText('T1 · E2');
+  await page.getByRole('button', { name: 'Temporada 2', exact: true }).click();
+  const finished = savedAs(page, '"season":2,"episode":10');
+  await page.getByRole('button', { name: 'Episódio 10', exact: true }).click();
+  await expect(page.getByText('Série concluída')).toBeVisible();
+  await finished;
 });
 test('a second device recovers the same profile without losing ratings', async ({ browser }) => {
   const context = await browser.newContext();
@@ -144,7 +276,10 @@ test('a second device recovers the same profile without losing ratings', async (
   await page.getByRole('button', { name: 'Recuperar meu perfil' }).click();
   await expect(page.getByRole('button', { name: 'Perfil de Ana' })).toBeVisible();
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
-  await expect(page.getByLabel('Minha nota · /10')).toHaveValue('8.5');
+  await expect(page.getByRole('slider', { name: 'Minha nota' })).toHaveAttribute(
+    'aria-valuenow',
+    '6.5',
+  );
   await context.close();
 });
 test('a new creator gets a private code and friends join only that club', async ({
@@ -167,11 +302,12 @@ test('a new creator gets a private code and friends join only that club', async 
       .getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' })
       .check();
     await creator.getByRole('button', { name: 'Ir para a Cenora' }).click();
-    await expect(creator.getByRole('button', { name: 'Selecionar lista' })).toBeVisible();
-    await expect(creator.locator('.media-card')).toHaveCount(0);
-    await creator.getByRole('button', { name: 'Adicionar', exact: true }).click();
+    await expect(creator.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await expect(creator.locator('.card')).toHaveCount(0);
+    await creator.screenshot({ path: 'artifacts/empty-shelf.png', animations: 'disabled' });
+    await creator.getByRole('button', { name: 'Adicionar', exact: true }).first().click();
     await creator.getByLabel('Título', { exact: true }).fill('Só no clube da Bia');
-    await creator.getByRole('button', { name: 'Guardar na lista' }).click();
+    await creator.getByRole('button', { name: 'Guardar na estante' }).click();
     await expect(creator.getByRole('dialog', { name: 'Só no clube da Bia' })).toBeVisible();
     const friend = await friendContext.newPage();
     await friend.goto('http://127.0.0.1:8788');
@@ -190,7 +326,7 @@ test('a new creator gets a private code and friends join only that club', async 
     await friend.getByRole('button', { name: 'Perfil de Beto' }).click();
     await expect(friend.getByText('Clube de Bia', { exact: true })).toBeVisible();
     await page.goto('/');
-    await expect(page.locator('.media-card')).toHaveCount(30);
+    await expect(page.locator('.card')).toHaveCount(30);
     await expect(
       page.getByRole('button', { name: 'Abrir Só no clube da Bia', exact: true }),
     ).toHaveCount(0);

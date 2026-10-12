@@ -1,4 +1,4 @@
-import type { CatalogResult, Person, Provider } from '@cenora/shared';
+import type { CatalogResult, Person, Provider, Season } from '@cenora/shared';
 import { ApiError, type Env } from './lib';
 type Json = Record<string, any>;
 const image = (path: string | null | undefined, size = 'w342') =>
@@ -97,6 +97,13 @@ export async function catalogDetails(env: Env, kind: 'movie' | 'tv', tmdbId: num
     posterUrl: image(r.poster_path, 'w500'),
     tmdbRating: r.vote_count ? r.vote_average : null,
     runtime: r.runtime || r.episode_run_time?.[0] || null,
+    seasons: (r.seasons || [])
+      .filter((s: Json) => s.season_number > 0 && s.episode_count > 0)
+      .map((s: Json): Season => ({
+        number: s.season_number,
+        name: s.name || `Temporada ${s.season_number}`,
+        episodes: s.episode_count,
+      })),
     genres: (r.genres || []).map((g: Json) => g.name),
     cast: (r.credits?.cast || []).slice(0, 12).map((p: Json): Person => ({
       id: p.id,

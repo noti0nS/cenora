@@ -7,6 +7,7 @@ import { Film, ArrowRight, KeyRound, Copy, Check } from 'lucide-react';
 import { displayName, type Member, type Club } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Button, Field, copyCode } from './ui';
+import { Wordmark } from './brand';
 const schema = z.object({
   name: displayName,
   code: z.string().trim(),
@@ -122,9 +123,9 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
     <main className="access-page">
       <div className="access-decoration" aria-hidden="true">
         <span className="ticket ticket-one">
-          mais uma
+          hoje tem
           <br />
-          <em>boa história.</em>
+          <em>sessão.</em>
         </span>
         <span className="ticket ticket-two">
           <Film size={48} strokeWidth={1} />
@@ -132,9 +133,7 @@ export function Access({ onEnter }: { onEnter: (member: Member, club: Club) => v
         <span className="access-dot" />
       </div>
       <section className="access-card">
-        <span className="wordmark">
-          <span className="brand-mark">C</span>Cenora
-        </span>
+        <Wordmark />
         {result ? (
           <Codes {...result} onDone={() => onEnter(result.member, result.club)} />
         ) : (

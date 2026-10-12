@@ -1,61 +1,96 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   QueryClient,
   QueryClientProvider,
   useQuery,
   useInfiniteQuery,
   useQueryClient,
+  type InfiniteData,
 } from '@tanstack/react-query';
-import { LazyMotion, domAnimation, MotionConfig } from 'motion/react';
+import {
+  AnimatePresence,
+  LazyMotion,
+  domMax,
+  MotionConfig,
+  useMotionTemplate,
+  useMotionValue,
+  useSpring,
+  useTransform,
+} from 'motion/react';
 import * as m from 'motion/react-m';
 import {
   Search,
   Plus,
-  ChevronDown,
   Check,
-  Film,
-  Sparkles,
+  Clapperboard,
   Tv,
-  Heart,
   Moon,
   Sun,
   LogOut,
-  SlidersHorizontal,
   ArrowUpRight,
   Settings,
   UserRound,
-  BookOpen,
   X,
-  Loader2,
+  Play,
+  Star,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
-import { personalLabels, groupLabels } from '@cenora/shared';
-import { api, json, errorMessage, RequestError } from '@/lib/api';
-import { Dropdown, MenuItem, Separator, Button, Modal, Field } from './ui';
+import { api, json, errorMessage, RequestError, score } from '@/lib/api';
+import { Dropdown, MenuItem, Separator, Button } from './ui';
 import { Access } from './access';
 import { Poster } from './poster';
-import { MediaDialog } from './media-dialog';
+import { Wordmark, ClapperMark } from './brand';
+import { TitleStage } from './title-stage';
 import { AddMedia } from './add-media';
 import { SettingsDialog } from './settings';
 import { ImportDialog } from './import-dialog';
 
-export const listIcons = { film: Film, sparkles: Sparkles, tv: Tv, heart: Heart, moon: Moon };
-const colorNames: Record<string, string> = {
-  lavender: 'Lavanda',
-  coral: 'Coral',
-  sage: 'Sálvia',
-  blue: 'Azul',
-  gold: 'Dourado',
+type Kind = 'movie' | 'tv';
+type Page = { items: Media[]; nextOffset: number | null };
+const kindCopy: Record<
+  Kind,
+  { tab: string; title: string; line: (n: number) => string; empty: string }
+> = {
+  movie: {
+    tab: 'Filmes',
+    title: 'Uma sessão, uma noite.',
+    line: (n) =>
+      n === 0
+        ? 'Nenhum filme na estante'
+        : n === 1
+          ? '1 filme na estante'
+          : `${n} filmes na estante`,
+    empty: 'Nenhum filme por aqui ainda.',
+  },
+  tv: {
+    tab: 'Séries',
+    title: 'Um episódio de cada vez.',
+    line: (n) =>
+      n === 0
+        ? 'Nenhuma série na estante'
+        : n === 1
+          ? '1 série na estante'
+          : `${n} séries na estante`,
+    empty: 'Nenhuma série por aqui ainda.',
+  },
 };
-const iconNames: Record<string, string> = {
-  film: 'Filme',
-  sparkles: 'Estrela',
-  tv: 'Série',
-  heart: 'Coração',
-  moon: 'Lua',
-};
+const chipsFor = (kind: Kind, mine: boolean) =>
+  mine
+    ? [
+        ['', 'Todos'],
+        ['want', 'Quero ver'],
+        ...(kind === 'tv' ? [['watching', 'Assistindo']] : []),
+        ['watched', 'Vistos'],
+        ['dropped', 'Abandonados'],
+      ]
+    : [
+        ['', 'Todos'],
+        ['planned', 'Na fila'],
+        ...(kind === 'tv' ? [['watching', 'Assistindo']] : []),
+        ['watched', 'Vistos'],
+      ];
 function useDebounced(value: string) {
   const [result, setResult] = useState(value);
   useEffect(() => {
@@ -80,7 +115,7 @@ export default function CenoraApp() {
   return (
     <QueryClientProvider client={client}>
       <MotionConfig reducedMotion="user">
-        <LazyMotion features={domAnimation} strict>
+        <LazyMotion features={domMax} strict>
           <App />
         </LazyMotion>
       </MotionConfig>
@@ -95,32 +130,45 @@ function App() {
     // Do not hide one-time recovery codes when someone switches apps to save them.
     refetchOnWindowFocus: (query) => Boolean(query.state.data?.member),
   });
-  const [theme, setTheme] = useState('light'),
-    [selected, setSelected] = useState(''),
+  const [theme, setTheme] = useState('dark'),
+    [kind, setKind] = useState<Kind>('movie'),
     [mine, setMine] = useState(false),
     [mediaId, setMediaId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false),
     [search, setSearch] = useState(''),
     [status, setStatus] = useState(''),
-    [sort, setSort] = useState('original');
+    [sort, setSort] = useState('recent');
   const [add, setAdd] = useState(false),
-    [editList, setEditList] = useState<Watchlist | 'new' | null>(null),
     [settings, setSettings] = useState(false),
     [importing, setImporting] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const q = useDebounced(search);
   useEffect(() => {
-    const saved = localStorage.getItem('watchlist:theme') || 'light';
+    const saved = localStorage.getItem('watchlist:theme') || 'dark';
     setTheme(saved);
     document.documentElement.dataset.theme = saved;
     const read = () => {
       const url = new URL(window.location.href);
-      setSelected(url.searchParams.get('list') || localStorage.getItem('watchlist:list') || '');
+      const saved = localStorage.getItem('watchlist:kind');
+      setKind((url.searchParams.get('kind') || saved) === 'tv' ? 'tv' : 'movie');
       setMine(url.searchParams.get('view') === 'mine');
       setMediaId(url.searchParams.get('media'));
     };
     read();
     window.addEventListener('popstate', read);
     return () => window.removeEventListener('popstate', read);
+  }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key !== '/' || event.metaKey || event.ctrlKey) return;
+      if (target?.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
+      event.preventDefault();
+      setSearchOpen(true);
+      searchInput.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -132,41 +180,50 @@ function App() {
     queryKey: ['lists'],
     queryFn: () => api<Watchlist[]>('/club/lists'),
     enabled: Boolean(session.data?.member),
+  });
+  const counts = useQuery({
+    queryKey: ['counts'],
+    queryFn: () => api<Record<Kind, number>>('/media/counts'),
+    enabled: Boolean(session.data?.member),
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
-  const active = lists.data?.find((l) => l.id === selected) || lists.data?.[0];
-  const navigate = (listId: string, personal: boolean, titleId: string | null = null) => {
-    setSelected(listId);
-    setMine(personal);
-    setMediaId(titleId);
-    if (listId) localStorage.setItem('watchlist:list', listId);
+  const navigate = (next: { kind?: Kind; mine?: boolean; media?: string | null }) => {
+    const nextKind = next.kind ?? kind;
+    const nextMine = next.mine ?? mine;
+    const nextMedia = next.media === undefined ? null : next.media;
+    setKind(nextKind);
+    setMine(nextMine);
+    setMediaId(nextMedia);
+    localStorage.setItem('watchlist:kind', nextKind);
     const url = new URL(window.location.href);
-    url.searchParams.delete('list');
+    url.searchParams.set('kind', nextKind);
     url.searchParams.delete('view');
     url.searchParams.delete('media');
-    if (listId) url.searchParams.set('list', listId);
-    if (personal) url.searchParams.set('view', 'mine');
-    if (titleId) url.searchParams.set('media', titleId);
+    if (nextMine) url.searchParams.set('view', 'mine');
+    if (nextMedia) url.searchParams.set('media', nextMedia);
     window.history.pushState({}, '', url);
   };
-  const media = useInfiniteQuery({
-    queryKey: ['media', mine ? 'mine' : active?.id, q, status, sort],
-    enabled: Boolean(session.data?.member && (mine || active)),
+  const chips = chipsFor(kind, mine);
+  const activeStatus = chips.some(([value]) => value === status) ? status : '';
+  const media = useInfiniteQuery<Page, Error, InfiniteData<Page, number>, unknown[], number>({
+    queryKey: ['media', kind, mine, q, activeStatus, sort],
+    enabled: Boolean(session.data?.member),
     initialPageParam: 0,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === kind ? previous : undefined,
     queryFn: ({ pageParam }) => {
-      const p = new URLSearchParams({ offset: String(pageParam), sort });
+      const p = new URLSearchParams({ offset: String(pageParam), sort, kind });
       if (mine) p.set('mine', 'true');
-      else if (active) p.set('list', active.id);
       if (q) p.set('q', q);
-      if (status) p.set('status', status);
-      return api<{ items: Media[]; nextOffset: number | null }>(`/media?${p}`);
+      if (activeStatus) p.set('status', activeStatus);
+      return api<Page>(`/media?${p}`);
     },
     getNextPageParam: (last) => last.nextOffset ?? undefined,
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
-  const unauthorized = [lists.error, media.error].some(
+  const unauthorized = [counts.error, media.error].some(
     (e) => e instanceof RequestError && e.status === 401,
   );
   useEffect(() => {
@@ -184,7 +241,7 @@ function App() {
     // Preserve the active session observer while discarding previous private data.
     qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
     qc.setQueryData(['session'], { ...session.data, member, club });
-    navigate('', false);
+    navigate({ kind: 'movie', mine: false });
     setSearch('');
     setStatus('');
     setSearchOpen(false);
@@ -197,20 +254,40 @@ function App() {
         old ? { ...old, member: null, club: null } : old,
       );
       qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
-      setMediaId(null);
-      navigate('', false);
+      navigate({ kind: 'movie', mine: false });
       void qc.invalidateQueries({ queryKey: ['session'] });
     } catch (e) {
       toast.error(errorMessage(e));
     }
   };
-  const changeList = (id: string, personal = false) => {
-    navigate(id, personal);
-    setStatus('');
-    setSearch('');
-    setSearchOpen(false);
+  // The shelf is unified, so the list behind each title is an implementation detail.
+  const ensureList = async () => {
+    const existing = lists.data?.[0]?.id;
+    if (existing) return existing;
+    const created = await api<{ id: string }>(
+      '/club/lists',
+      json('POST', { name: 'Estante', color: 'lavender', icon: 'film' }),
+    );
+    await qc.invalidateQueries({ queryKey: ['lists'] });
+    return created.id;
   };
   const items = media.data?.pages.flatMap((p) => p.items) || [];
+  const preview = items.find((item) => item.id === mediaId) ?? null;
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !media.hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !media.isFetchingNextPage) void media.fetchNextPage();
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [media.hasNextPage, media.isFetchingNextPage, media.fetchNextPage, items.length]);
+  const total = counts.data?.[kind] ?? 0;
+  const filtered = Boolean(q || activeStatus);
   return (
     <>
       <Toaster
@@ -221,7 +298,7 @@ function App() {
       />
       {session.isPending ? (
         <div className="initial-loading">
-          <span className="brand-mark">C</span>
+          <ClapperMark size={56} />
           <span className="sr-only">Carregando Cenora</span>
         </div>
       ) : session.error ? (
@@ -233,65 +310,83 @@ function App() {
       ) : !member ? (
         <Access onEnter={enter} />
       ) : (
-        <div className="app-shell">
-          <a href="#gallery" className="skip-link">
+        <div className="app-shell" data-kind={kind}>
+          <a href="#shelf" className="skip-link">
             Ir para os títulos
           </a>
           <header className="app-header">
-            <div className="header-left">
-              <span className="brand-mini" aria-hidden="true">
-                C<span>✳</span>
-              </span>
-              <Dropdown
-                trigger={
-                  <button className="list-switcher" aria-label="Selecionar lista">
-                    <span>{mine ? 'Minhas histórias' : active?.name || 'Cenora'}</span>
-                    <ChevronDown size={18} />
-                  </button>
-                }
-              >
-                <div className="menu-caption">NOSSAS LISTAS</div>
-                {lists.data?.map((l) => {
-                  const Icon = listIcons[l.icon as keyof typeof listIcons] || Film;
-                  return (
-                    <MenuItem key={l.id} onSelect={() => changeList(l.id)}>
-                      <span className={`list-dot ${l.color}`}>
-                        <Icon size={15} />
-                      </span>
-                      <span className="menu-grow">{l.name}</span>
-                      <small>{l.count}</small>
-                      {!mine && active?.id === l.id && <Check size={14} />}
-                    </MenuItem>
-                  );
-                })}
-                <Separator />
-                <MenuItem onSelect={() => setEditList('new')}>
-                  <Plus size={16} />
-                  Criar lista
-                </MenuItem>
-                {active && !mine && (
-                  <MenuItem onSelect={() => setEditList(active)}>
-                    <Settings size={16} />
-                    Editar esta lista
-                  </MenuItem>
-                )}
-              </Dropdown>
+            <Wordmark />
+            <div className="kind-switch" role="tablist" aria-label="Tipo de título">
+              {(['movie', 'tv'] as const).map((value) => (
+                <button
+                  key={value}
+                  role="tab"
+                  aria-selected={kind === value}
+                  className={kind === value ? 'selected' : ''}
+                  onClick={() => {
+                    if (kind !== value) {
+                      setStatus('');
+                      navigate({ kind: value });
+                    }
+                  }}
+                >
+                  {kind === value && (
+                    <m.span
+                      layoutId="kind-thumb"
+                      className="kind-thumb"
+                      transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+                    />
+                  )}
+                  <span className="kind-label">
+                    {value === 'movie' ? <Clapperboard size={16} /> : <Tv size={16} />}
+                    {kindCopy[value].tab}
+                    <small>{counts.data?.[value] ?? ''}</small>
+                  </span>
+                </button>
+              ))}
             </div>
             <div className="header-actions">
-              <button
-                className={`icon-button ${searchOpen ? 'is-active' : ''}`}
-                aria-label="Buscar e filtrar"
-                aria-expanded={searchOpen}
-                onClick={() => setSearchOpen(!searchOpen)}
-              >
-                <Search size={20} />
-              </button>
-              <Button
-                className="add-button"
-                aria-label="Adicionar"
-                onClick={() => setAdd(true)}
-                disabled={!lists.data?.length}
-              >
+              <div className={`search ${searchOpen || search ? 'open' : ''}`} role="search">
+                <button
+                  className="icon-button"
+                  aria-label="Buscar"
+                  onClick={() => {
+                    setSearchOpen(true);
+                    searchInput.current?.focus();
+                  }}
+                >
+                  <Search size={19} />
+                </button>
+                <input
+                  ref={searchInput}
+                  aria-label="Buscar na estante"
+                  tabIndex={searchOpen || search ? 0 : -1}
+                  placeholder={kind === 'tv' ? 'Buscar séries' : 'Buscar filmes'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onBlur={() => !search && setSearchOpen(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearch('');
+                      setSearchOpen(false);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                />
+                {search && (
+                  <button
+                    className="icon-button"
+                    aria-label="Limpar busca"
+                    onClick={() => {
+                      setSearch('');
+                      searchInput.current?.focus();
+                    }}
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+              <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
                 <span>Adicionar</span>
               </Button>
@@ -304,10 +399,6 @@ function App() {
               >
                 <div className="menu-caption member-name">{member.name}</div>
                 {session.data?.club && <div className="menu-caption">{session.data.club.name}</div>}
-                <MenuItem onSelect={() => changeList(active?.id || '', true)}>
-                  <BookOpen size={16} />
-                  Minhas histórias
-                </MenuItem>
                 <MenuItem onSelect={() => setSettings(true)}>
                   <UserRound size={16} />
                   Meu perfil
@@ -337,84 +428,67 @@ function App() {
               </Dropdown>
             </div>
           </header>
-          {searchOpen && (
-            <div className="search-panel">
-              <div className="search-input">
-                <Search size={18} />
-                <input
-                  autoFocus
-                  aria-label="Buscar nesta lista"
-                  placeholder="Qual história você está procurando?"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                {search && (
-                  <button
-                    className="icon-button"
-                    aria-label="Limpar busca"
-                    onClick={() => setSearch('')}
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </div>
-              <div className="filter-controls">
-                <SlidersHorizontal size={15} />
-                <select
-                  aria-label="Filtrar por progresso"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+          <section className="shelf-intro" aria-live="polite">
+            <AnimatePresence mode="wait" initial={false}>
+              <m.div
+                key={kind}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <h1>{kindCopy[kind].title}</h1>
+                <p>{counts.data ? kindCopy[kind].line(total) : ' '}</p>
+              </m.div>
+            </AnimatePresence>
+          </section>
+          <div className="toolbar">
+            <div className="chips" role="group" aria-label="Filtrar por progresso">
+              {chips.map(([value, label]) => (
+                <button
+                  key={value || 'all'}
+                  className={`chip ${activeStatus === value ? 'on' : ''}`}
+                  aria-pressed={activeStatus === value}
+                  onClick={() => setStatus(value)}
                 >
-                  <option value="">Todos os títulos</option>
-                  {Object.entries(mine ? personalLabels : groupLabels).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Ordenar títulos"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value)}
-                >
-                  <option value="original">Ordem da lista</option>
-                  <option value="title">A–Z</option>
-                  <option value="recent">Recém-adicionados</option>
-                  <option value="rating">Nota do grupo</option>
-                </select>
-              </div>
+                  {activeStatus === value && (
+                    <m.span
+                      layoutId="chip-thumb"
+                      className="chip-thumb"
+                      transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+                    />
+                  )}
+                  <span>{label}</span>
+                </button>
+              ))}
             </div>
-          )}
-          {(q || status) && (
-            <div className="active-filter">
-              <span>
-                {q ? `“${q}”` : ''}
-                {q && status ? ' · ' : ''}
-                {status
-                  ? mine
-                    ? personalLabels[status as keyof typeof personalLabels]
-                    : groupLabels[status as keyof typeof groupLabels]
-                  : ''}
-              </span>
+            <div className="toolbar-end">
               <button
-                className="text-button"
+                className={`chip mine ${mine ? 'on' : ''}`}
+                aria-pressed={mine}
                 onClick={() => {
-                  setSearch('');
                   setStatus('');
+                  navigate({ mine: !mine });
                 }}
               >
-                Limpar
-                <X size={12} />
+                <UserRound size={13} />
+                <span>Só os meus</span>
               </button>
+              <select
+                className="sort"
+                aria-label="Ordenar títulos"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                <option value="recent">Recentes</option>
+                <option value="title">A–Z</option>
+                <option value="rating">Nota do grupo</option>
+              </select>
             </div>
-          )}
-          <main
-            id="gallery"
-            tabIndex={-1}
-            aria-label={mine ? 'Minhas histórias' : active?.name || 'Lista'}
-          >
-            {media.isPending || lists.isPending ? (
-              <div className="gallery" aria-label="Carregando títulos">
+          </div>
+          <main id="shelf" tabIndex={-1} aria-label={kindCopy[kind].tab}>
+            {media.isPending ? (
+              <div className="shelf" aria-label="Carregando títulos">
                 {Array.from({ length: 10 }, (_, i) => (
                   <div key={i} className="skeleton-card">
                     <div className="poster skeleton" />
@@ -422,120 +496,95 @@ function App() {
                   </div>
                 ))}
               </div>
-            ) : media.error || lists.error ? (
+            ) : media.error ? (
               <div className="empty-state">
                 <h2>Essa cena precisa de mais uma tentativa.</h2>
-                <p>{errorMessage(media.error || lists.error)}</p>
-                <Button
-                  onClick={() => {
-                    media.refetch();
-                    lists.refetch();
-                  }}
-                >
-                  Tentar novamente
-                </Button>
+                <p>{errorMessage(media.error)}</p>
+                <Button onClick={() => media.refetch()}>Tentar novamente</Button>
               </div>
             ) : items.length ? (
               <>
-                <div className="gallery">
-                  {items.map((item) => (
-                    <m.button
+                <ul className="shelf" key={`${kind}-${mine}-${activeStatus}-${sort}`}>
+                  {items.map((item, index) => (
+                    <PosterCard
                       key={item.id}
-                      className="media-card"
-                      onClick={() => navigate(active?.id || '', mine, item.id)}
-                      aria-label={`Abrir ${item.title}`}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18 }}
-                      whileHover={{ y: -3 }}
-                    >
-                      <Poster media={item} />
-                      <span className="media-title">{item.title}</span>
-                    </m.button>
+                      item={item}
+                      index={index}
+                      mine={mine}
+                      onOpen={() => navigate({ media: item.id })}
+                    />
                   ))}
-                </div>
+                </ul>
                 {media.hasNextPage && (
-                  <div className="load-more">
+                  <div className="load-more" ref={sentinel}>
                     <Button
                       className="secondary"
                       busy={media.isFetchingNextPage}
                       onClick={() => media.fetchNextPage()}
                     >
-                      Ver mais títulos
+                      Ver mais
                     </Button>
                   </div>
                 )}
               </>
             ) : (
               <div className="empty-state">
-                <div className="empty-symbol">
-                  <Film size={32} strokeWidth={1.3} />
-                  <span>✳</span>
-                </div>
+                <ClapperMark size={64} />
                 <h2>
-                  {q || status
-                    ? 'Nenhuma história por aqui.'
-                    : mine
-                      ? 'Seu capítulo começa aqui.'
-                      : 'Qual vai ser a próxima história?'}
+                  {filtered || mine ? 'Nada por aqui com esse filtro.' : kindCopy[kind].empty}
                 </h2>
                 <p>
-                  {q || status
-                    ? 'Experimente outra busca ou ajuste os filtros.'
-                    : mine
-                      ? 'Abra um título para guardar sua nota ou seu progresso.'
-                      : 'Guarde os filmes e séries que vocês querem assistir juntos.'}
+                  {filtered || mine
+                    ? 'Experimente outra busca ou limpe os filtros.'
+                    : kind === 'tv'
+                      ? 'Adicione a primeira série e acompanhe episódio por episódio.'
+                      : 'Adicione o primeiro filme e dê uma nota depois da sessão.'}
                 </p>
-                {!q && !status && !mine && (
+                {filtered || mine ? (
+                  <Button
+                    className="secondary"
+                    onClick={() => {
+                      setSearch('');
+                      setStatus('');
+                      if (mine) navigate({ mine: false });
+                    }}
+                  >
+                    Limpar filtros
+                  </Button>
+                ) : (
                   <>
-                    <Button onClick={() => setAdd(true)} disabled={!active}>
+                    <Button onClick={() => setAdd(true)}>
                       <Plus size={16} />
-                      Adicionar um título
+                      {kind === 'tv' ? 'Adicionar uma série' : 'Adicionar um filme'}
                     </Button>
                     {member.role === 'owner' && (
-                      <button
-                        className="text-button import-empty"
-                        onClick={() => setImporting(true)}
-                      >
+                      <button className="text-button" onClick={() => setImporting(true)}>
                         Trazer nossa lista do documento
                         <ArrowUpRight size={14} />
                       </button>
-                    )}
-                    {!active && (
-                      <Button className="secondary" onClick={() => setEditList('new')}>
-                        Criar uma lista
-                      </Button>
                     )}
                   </>
                 )}
               </div>
             )}
           </main>
-          <MediaDialog
+          <TitleStage
             id={mediaId}
-            lists={lists.data || []}
-            currentList={mine ? null : active?.id || null}
-            onClose={() => navigate(active?.id || '', mine)}
+            preview={preview}
+            onClose={() => navigate({ media: null })}
             catalogAvailable={Boolean(session.data?.catalogAvailable)}
           />
           <AddMedia
             open={add}
             onClose={() => setAdd(false)}
-            lists={lists.data || []}
-            initialList={active?.id || ''}
+            defaultKind={kind}
+            ensureList={ensureList}
             catalogAvailable={Boolean(session.data?.catalogAvailable)}
-            onAdded={(id) => {
+            onAdded={(id, addedKind) => {
               setAdd(false);
-              navigate(active?.id || '', mine, id);
-            }}
-          />
-          <ListEditor
-            value={editList}
-            onClose={() => setEditList(null)}
-            owner={member.role === 'owner'}
-            onSaved={(id) => {
-              setEditList(null);
-              changeList(id);
+              setSearch('');
+              setStatus('');
+              navigate({ kind: addedKind, mine: false, media: id });
             }}
           />
           <SettingsDialog
@@ -556,137 +605,97 @@ function App() {
     </>
   );
 }
-function ListEditor({
-  value,
-  onClose,
-  onSaved,
-  owner,
+function PosterCard({
+  item,
+  index,
+  mine,
+  onOpen,
 }: {
-  value: Watchlist | 'new' | null;
-  onClose: () => void;
-  onSaved: (id: string) => void;
-  owner: boolean;
+  item: Media;
+  index: number;
+  mine: boolean;
+  onOpen: () => void;
 }) {
-  const qc = useQueryClient();
-  const [name, setName] = useState(''),
-    [color, setColor] = useState('lavender'),
-    [icon, setIcon] = useState('film'),
-    [busy, setBusy] = useState(false),
-    [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    setName(value && value !== 'new' ? value.name : '');
-    setColor(value && value !== 'new' ? value.color : 'lavender');
-    setIcon(value && value !== 'new' ? value.icon : 'film');
-    setConfirm(false);
-  }, [value]);
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const result = await api<{ id?: string }>(
-        value === 'new' ? '/club/lists' : `/club/lists/${value?.id}`,
-        json(value === 'new' ? 'POST' : 'PATCH', {
-          name,
-          color,
-          icon,
-          ...(value && value !== 'new' ? { revision: value.revision } : {}),
-        }),
-      );
-      await qc.invalidateQueries({ queryKey: ['lists'] });
-      onSaved(result.id || (value && value !== 'new' ? value.id : ''));
-      toast.success('Lista salva.');
-    } catch (e) {
-      toast.error(errorMessage(e));
-      void qc.invalidateQueries({ queryKey: ['lists'] });
-    } finally {
-      setBusy(false);
-    }
+  const px = useMotionValue(0.5);
+  const py = useMotionValue(0.5);
+  const spring = { stiffness: 220, damping: 20, mass: 0.6 };
+  const rotateX = useSpring(useTransform(py, [0, 1], [7, -7]), spring);
+  const rotateY = useSpring(useTransform(px, [0, 1], [-7, 7]), spring);
+  const gx = useTransform(px, [0, 1], [0, 100]);
+  const gy = useTransform(py, [0, 1], [0, 100]);
+  const glare = useMotionTemplate`radial-gradient(circle at ${gx}% ${gy}%, rgb(255 255 255 / 0.24), transparent 58%)`;
+  const reset = () => {
+    px.set(0.5);
+    py.set(0.5);
   };
-  const remove = async () => {
-    if (!value || value === 'new') return;
-    setBusy(true);
-    try {
-      await api(`/club/lists/${value.id}`, json('DELETE'));
-      await qc.invalidateQueries({ queryKey: ['lists'] });
-      onSaved('');
-      toast.success('Lista removida. As notas foram preservadas.');
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const state = mine ? item.personal?.status : item.groupStatus;
+  const checkpoint = mine
+    ? { season: item.personal?.season, episode: item.personal?.episode }
+    : { season: item.groupSeason, episode: item.groupEpisode };
+  const shownScore = mine ? (item.personal?.rating ?? item.average) : item.average;
   return (
-    <Modal
-      open={Boolean(value)}
-      onClose={busy ? () => {} : onClose}
-      title={value === 'new' ? 'Uma nova lista' : 'Do seu jeito'}
-      description="Um pequeno espaço para um novo tipo de história."
+    <m.li
+      className="cell"
+      layout="position"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        type: 'spring',
+        stiffness: 260,
+        damping: 26,
+        delay: Math.min(index, 14) * 0.035,
+      }}
     >
-      <form onSubmit={save} className="stack">
-        <Field label="Nome da lista">
-          <input
-            data-autofocus
-            maxLength={60}
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Por exemplo, Domingo à noite"
-          />
-        </Field>
-        <Field label="Um toque de cor">
-          <div className="swatches">
-            {['lavender', 'coral', 'sage', 'blue', 'gold'].map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-label={colorNames[c]}
-                aria-pressed={color === c}
-                className={`swatch ${c} ${color === c ? 'selected' : ''}`}
-                onClick={() => setColor(c)}
-              >
-                {color === c && <Check size={16} />}
-              </button>
-            ))}
-          </div>
-        </Field>
-        <Field label="Ícone">
-          <div className="icon-options">
-            {Object.entries(listIcons).map(([key, Icon]) => (
-              <button
-                key={key}
-                type="button"
-                className={`icon-button ${icon === key ? 'selected' : ''}`}
-                aria-label={`Ícone ${iconNames[key]}`}
-                aria-pressed={icon === key}
-                onClick={() => setIcon(key)}
-              >
-                <Icon size={20} />
-              </button>
-            ))}
-          </div>
-        </Field>
-        <Button type="submit" busy={busy}>
-          Salvar lista
-        </Button>
-        {owner &&
-          value !== 'new' &&
-          (confirm ? (
-            <div className="confirm-box">
-              <p>Remover a lista? Os títulos e as notas continuam no clube.</p>
-              <Button type="button" className="danger-button" busy={busy} onClick={remove}>
-                Remover lista
-              </Button>
-              <button type="button" className="text-button" onClick={() => setConfirm(false)}>
-                Cancelar
-              </button>
-            </div>
+      <m.button
+        className={`card kind-${item.kind}`}
+        aria-label={`Abrir ${item.title}`}
+        style={{ rotateX, rotateY, transformPerspective: 900 }}
+        whileTap={{ scale: 0.97 }}
+        onPointerMove={(e) => {
+          if (e.pointerType !== 'mouse') return;
+          const box = e.currentTarget.getBoundingClientRect();
+          px.set((e.clientX - box.left) / box.width);
+          py.set((e.clientY - box.top) / box.height);
+        }}
+        onPointerLeave={reset}
+        onClick={() => {
+          rotateX.jump(0);
+          rotateY.jump(0);
+          reset();
+          onOpen();
+        }}
+      >
+        <span className="card-art">
+          <Poster media={item} layoutId={`poster-${item.id}`} />
+          <m.span className="glare" style={{ backgroundImage: glare }} aria-hidden="true" />
+          {state === 'watched' && (
+            <span className="badge done" aria-hidden="true">
+              <Check size={13} />
+            </span>
+          )}
+          {state === 'watching' && (
+            <span className="badge live" aria-hidden="true">
+              <Play size={11} fill="currentColor" />
+            </span>
+          )}
+        </span>
+        <span className="card-title">{item.title}</span>
+        <span className="card-meta">
+          {item.kind === 'tv' && checkpoint.season && checkpoint.episode ? (
+            <span className="pill progress">
+              T{checkpoint.season} · E{checkpoint.episode}
+            </span>
           ) : (
-            <button type="button" className="text-button danger" onClick={() => setConfirm(true)}>
-              Remover esta lista
-            </button>
-          ))}
-      </form>
-    </Modal>
+            item.year && <span>{item.year}</span>
+          )}
+          {shownScore != null && (
+            <span className={`pill score ${mine && item.personal?.rating != null ? 'mine' : ''}`}>
+              <Star size={10} fill="currentColor" />
+              {score(shownScore)}
+            </span>
+          )}
+        </span>
+      </m.button>
+    </m.li>
   );
 }

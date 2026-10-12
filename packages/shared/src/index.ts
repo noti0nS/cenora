@@ -116,8 +116,14 @@ export interface Provider {
   name: string;
   logo: string | null;
 }
+export interface Season {
+  number: number;
+  name: string;
+  episodes: number;
+}
 export interface MediaDetails extends Media {
   runtime: number | null;
+  seasons: Season[];
   genres: string[];
   cast: Person[];
   imdbId: string | null;
