@@ -1,6 +1,6 @@
 # Cenora
 
-Cenora is a private Portuguese shelf of movies and shows for friends. Anyone can create a club in the app and receive a unique private invite code. There is one screen: a **Filmes / Séries** switch over a poster shelf. A movie opens a _session_ (status plus a draggable half-point rating dial, with friends' ratings on a shared scale). A show opens a _tracker_ (progress ring, season rail, tappable episodes, with separate personal and group progress). Changes save automatically. Custom lists are no longer shown; each club keeps a hidden default list for the API.
+Cenora is a private Portuguese shelf of movies and shows for friends. Enter with an email code or with a club invite; the shelf stays the same. Anyone can create a club in the app and receive a unique private invite code. There is one screen: a **Filmes / Séries** switch over a poster shelf. A movie opens a _session_ (status plus a draggable half-point rating dial, with friends' ratings on a shared scale). A show opens a _tracker_ (progress ring, season rail, tappable episodes, with separate personal and group progress). Changes save automatically. Custom lists are no longer shown; each club keeps a hidden default list for the API.
 
 ## Run locally
 
@@ -12,9 +12,9 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open **http://127.0.0.1:8787**. Enter your name and choose **Criar meu clube**. The app generates the private invite code automatically. Save it to share with friends, and save your separate personal recovery code. Friends choose **Tenho um código de convite** and enter their name and your invite code.
+Open **http://127.0.0.1:8787**. The first door is the email one: type any address, press **Enviar código**, and read the six digits in the local outbox at **http://127.0.0.1:8787/api/dev/outbox** — development captures mail instead of sending it. You can also create a club without an account: choose **Criar meu clube**, enter your name, and save the private invite code plus your recovery code. Friends choose **Tenho um código de convite**.
 
-Run `pnpm db:migrate` after pulling schema changes. Existing club data, invitation codes, and sessions are preserved by the self-service migration. Local D1 state stays under `apps/api/.wrangler/state`. Club creation does not require a command or a pre-existing invitation.
+Run `pnpm db:migrate` after pulling schema changes. Existing club data, invitation codes, and sessions are preserved by the migrations. Local D1 state stays under `apps/api/.wrangler/state`. Club creation does not require a command or a pre-existing invitation.
 
 For frontend hot reload, first build once, then use two terminals:
 
@@ -37,9 +37,16 @@ Copy `apps/api/.dev.vars.example` to `apps/api/.dev.vars` and set:
 ```dotenv
 TMDB_TOKEN=your_tmdb_read_access_token_or_v3_api_key
 OMDB_KEY=your_optional_omdb_key
+# Acesso por e-mail: obrigatório em produção; em desenvolvimento há um valor local.
+AUTH_PEPPER=at_least_32_random_bytes
+# Resend: sem chave em desenvolvimento, os códigos ficam no outbox local.
+RESEND_API_KEY=your_resend_key
+MAIL_FROM=Cenora <nao-responda@cenora.club>
+# Opcional: liga a verificação do Turnstile no envio de códigos.
+TURNSTILE_SECRET=your_optional_turnstile_secret
 ```
 
-Restart the Worker after changing credentials. These values stay on the backend; do not prefix them with `NEXT_PUBLIC_`.
+Restart the Worker after changing credentials. These values stay on the backend; do not prefix them with `NEXT_PUBLIC_`, except the Turnstile site key below, which is public by design.
 
 - TMDB supplies posters, Portuguese descriptions, cast, biographies, and its own scores.
 - Streaming availability is for Brazil, grouped by subscription, rental, and purchase. The link opens TMDB's availability page; provider results are not direct playback links.
@@ -61,20 +68,34 @@ The same screen also accepts newline-separated lists. The club owner can export 
 
 ## Access and collaboration
 
-The redesign keeps the original session-cookie and browser-preference keys (`watchlist:*`), preserving existing logins, names and themes. Dark is the default theme.
+Sessions keep the original cookie and browser-preference keys (`watchlist:*`), preserving existing logins, names and themes. Dark is the default theme.
 
-- Anyone can create a separate private club. Each club has its own unique, high-entropy invite token; each membership has a separate personal recovery code.
-- Members, lists, media, ratings, imports, and administrative operations are scoped to the club authenticated by the session. Another club cannot read or change them, even with a known record ID.
-- The same display name can be used in different clubs. One browser session is active at a time; use the appropriate club invitation and personal recovery code to return to a different membership.
-- Names and theme preferences are remembered in localStorage. Authentication uses a 30-day HttpOnly session cookie, Secure on HTTPS.
-- Reopening an existing profile on another device requires the current club token and personal recovery code. A name alone cannot reopen it.
-- Club tokens, recovery codes, and session tokens are stored as SHA-256 hashes. Raw access and recovery codes are displayed only at creation/rotation.
+- Every person has an **identity**, with or without an email. Email is one way to prove who you are, not a requirement: guests enter with a club invite and keep an identity that works across clubs.
+- Anyone can create a separate private club. Each club has a unique, high-entropy invite token. The creator confirms at least one way back: an email or the identity recovery code.
+- One identity can belong to several clubs and switch between them from the profile menu. Members, lists, media, ratings, imports, and administrative operations stay scoped to the active club; another club cannot read or change them, even with a known record ID.
+- Sessions live 30 days without use and renew while used. Accounts expire at the 12-month mark and come back with an email code; guests do not expire by a cap — they would have no way back. Attaching an email starts that clock.
+- Guests can link an email in **Meu perfil → Acesso** without losing clubs. If the address already has an account, the app offers to bring the guest clubs over and refuses (never merging silently) when both sides have a profile in the same club — the club owner resolves that.
+- Recovery: generate an identity recovery code in your profile; rotating it signs other devices out. Club owners hand out a **scoped re-access code** for a member in **Configurações do clube → Quem faz parte**: it opens only that club, once, for seven days.
+- Club tokens, recovery codes, re-access codes, and session tokens are stored as hashes. Raw codes are displayed only at creation or rotation.
 - Members maintain shared lists and group progress, but can edit only their own rating and personal progress. Only the owner can delete lists or administer members.
-- Rotating a club token revokes that club's other sessions; other clubs remain unaffected. Replacing a recovery code revokes that membership's other sessions.
+- Rotating a club token revokes sessions active in that club; other clubs remain unaffected. Removing a member revokes sessions for that profile.
 - A shared title has one group progress record and one tracking/rating record per member, even when it still belongs to several legacy lists.
 - Revision checks protect personal and shared edits against accidental overwrites.
 
-If a friend loses a recovery code, the owner can generate a replacement from **Configurações do clube → Quem faz parte**. If the owner loses access, a Cloudflare administrator can reset the owner's hashed recovery code through D1; the existing club data should be preserved.
+If a friend loses every credential, an owner can hand out a scoped re-access code. If an owner loses everything, the operator mints the same kind of code straight into D1:
+
+```powershell
+pnpm recover -- <memberId> --remote
+```
+
+The script prints the code once and stores its hash; the code opens only that profile's club. The member id appears in **Configurações do clube → Quem faz parte** (or in the `members` table).
+
+### Email codes
+
+- The email door sends a six-digit code, valid for 10 minutes, single use, five attempts. Codes are hashed with `AUTH_PEPPER` (HMAC-SHA256) and compared in constant time.
+- Requests are limited per address, per IP, globally per day, and optionally by Turnstile. Set `TURNSTILE_SECRET` on the Worker and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` when building the web export to turn the widget on; without them the flow still works.
+- In development the Worker captures messages into `mail_outbox` and exposes them at `/api/dev/outbox`; that route answers 404 outside development.
+- Production sends through Resend (`RESEND_API_KEY`). Verify `cenora.club` there, add the DKIM/SPF records it shows, and start DMARC at `p=none`. The `Mailer` interface keeps a Cloudflare Email Service binding as a drop-in alternative.
 
 ## Validate
 
@@ -125,13 +146,19 @@ Create the ignored `.secrets.staging.json` locally, using your actual credential
 ```json
 {
   "TMDB_TOKEN": "your_tmdb_credential",
-  "OMDB_KEY": "your_optional_omdb_key"
+  "OMDB_KEY": "your_optional_omdb_key",
+  "AUTH_PEPPER": "a_long_random_string_at_least_32_bytes",
+  "RESEND_API_KEY": "your_resend_key",
+  "MAIL_FROM": "Cenora <nao-responda@cenora.club>",
+  "TURNSTILE_SECRET": "your_optional_turnstile_secret"
 }
 ```
 
-Open the returned `workers.dev` address and create a club directly in the interface. Check creation, joining, recovery, cross-club privacy, catalog search, progress, and imports before production.
+`AUTH_PEPPER` is required for the email door; without it those endpoints answer 503. The Turnstile pair is optional: set `TURNSTILE_SECRET` here and `$env:NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'the_public_site_key'` before `pnpm --filter @cenora/web build` to show the widget. Verify the sending domain (Resend: DKIM and SPF records for `cenora.club`, DMARC starting at `p=none`) before relying on real emails.
 
-For production, create `cenora`, set `D1_DATABASE_ID` to its different UUID, run migrations with `--remote` and without `--staging`, then deploy without `--mode staging`. Use a separate production secrets file. Environment variables are inherited from your shell; the root `.env.example` is a reference rather than an automatically loaded file.
+Open the returned `workers.dev` address and create a club directly in the interface. Check creation, joining, recovery, cross-club privacy, the email door (read the code in the local outbox only in development; in staging ask for a real address), catalog search, progress, and imports before production.
+
+For production, create `cenora`, set `D1_DATABASE_ID` to its different UUID, run migrations with `--remote` and without `--staging`, then deploy without `--mode staging`. Use a separate production secrets file with the same keys as staging. Environment variables are inherited from your shell; the root `.env.example` is a reference rather than an automatically loaded file.
 
 ```powershell
 pnpm --filter @cenora/api exec cf d1 create --name cenora
@@ -143,16 +170,16 @@ pnpm --filter @cenora/api exec cf deploy --secrets-file ../../.secrets.productio
 
 The frontend is exported before the Worker build because `cf` does not execute custom root build scripts. API routes run through the Worker; static assets are served directly. Private data is fetched only after authentication and is not embedded in static HTML.
 
-The free-plan target is 100,000 Worker requests/day and 10 ms CPU/request; D1 permits 500 MB per database, 5 million rows read/day, and 100,000 rows written/day. Check deployed CPU usage and errors in Cloudflare before declaring real free-tier compatibility. Local tests and dry runs do not prove live CPU usage or external API credentials.
+The free-plan target is 100,000 Worker requests/day and 10 ms CPU/request; D1 permits 5 GB per database, 5 million rows read/day, and 100,000 rows written/day (enforced as hard stops since September 2026). Workers Paid removes the D1 stops and includes 3,000 emails/month if you switch the mailer to Cloudflare Email Service. Check deployed CPU usage and errors in Cloudflare before declaring real free-tier compatibility. Local tests and dry runs do not prove live CPU usage or external API credentials.
 
-A daily scheduled task prunes expired sessions, old authentication attempts, and old provider caches. Use Cloudflare's D1 Time Travel and JSON exports for operational backup; never commit runtime state or secrets.
+A daily scheduled task prunes expired sessions, old authentication attempts, used or expired re-access codes, old login codes, and old provider caches. Use Cloudflare's D1 Time Travel and JSON exports for operational backup; never commit runtime state or secrets.
 
 ## Project layout
 
 - `apps/web`: statically exported Next.js interface, local fonts, Radix controls, and Motion transitions.
 - `apps/api`: Hono Worker, D1 migrations, authorization, catalog adapters, and runtime integration tests.
 - `packages/shared`: TypeScript contracts, Zod validation, Portuguese status labels, and screenshot import data.
-- `scripts`: local/remote D1 provisioning.
+- `scripts`: local/remote D1 provisioning and the operator recovery script (`recover.mjs`).
 - `tests`: end-to-end browser flows.
 
 The gallery deliberately keeps dashboards, voting, scheduling, comments, and extra navigation out of the first release.
@@ -167,5 +194,8 @@ You can also run it manually from GitHub Actions. Production runs are serialized
 Configure the repository secret `CLOUDFLARE_API_TOKEN` with Workers Scripts Edit,
 Workers Tail Read, D1 Edit, and Account Settings Read permissions for the configured
 Cloudflare account. The workflow uses the pinned `cf` CLI and pnpm version.
-Optional catalog credentials remain managed through the production secrets file;
-do not commit them or put them in frontend environment variables.
+Production secrets, including `AUTH_PEPPER`, `RESEND_API_KEY`, `MAIL_FROM`, and the
+optional `TURNSTILE_SECRET`, live on the deployed Worker (dashboard or a one-time
+`cf secrets` upload); the workflow deploys without a secrets file and keeps them.
+Do not commit them or put them in frontend environment variables — the only public
+value is `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, inlined into the static export.
