@@ -1,9 +1,20 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { listSchema, normalizeName, importSchema } from '@cenora/shared';
-import { ApiError, body, owner, id, token, hash, type AppEnv } from './lib';
+import { listSchema, normalizeName, importSchema, invitePasswordSchema } from '@cenora/shared';
+import {
+  ApiError,
+  body,
+  owner,
+  id,
+  token,
+  hash,
+  pepperFor,
+  invitePasswordDigest,
+  type AppEnv,
+} from './lib';
 import { lists as listTable } from './schema';
 import { attach, registerCatalog, requireList } from './media';
 
@@ -141,6 +152,64 @@ clubRoutes.post('/token', async (c) => {
     ).bind(clubId, c.get('sessionHash')),
   ]);
   return c.json({ clubToken: code });
+});
+
+type InviteRecord = { token: string; password_hash: string | null; created_at: number };
+
+function readInvite(c: Context<AppEnv>, clubId: string) {
+  return c.env.DB.prepare('SELECT token,password_hash,created_at FROM club_invites WHERE club_id=?')
+    .bind(clubId)
+    .first<InviteRecord>();
+}
+
+const toInvite = (row: InviteRecord) => ({
+  token: row.token,
+  passwordProtected: Boolean(row.password_hash),
+  createdAt: row.created_at,
+});
+
+clubRoutes.get('/invite', async (c) => {
+  owner(c);
+  const row = await readInvite(c, c.get('club').id);
+  return c.json({ invite: row ? toInvite(row) : null });
+});
+
+// Cria o link ou gira o token; a senha opcional sobrevive porque PATCH cuida dela.
+clubRoutes.post('/invite', async (c) => {
+  owner(c);
+  const clubId = c.get('club').id;
+  const code = token();
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    `INSERT INTO club_invites (club_id,token,password_hash,created_by,created_at,updated_at)
+     VALUES (?,?,NULL,?,?,?)
+     ON CONFLICT(club_id) DO UPDATE SET token=excluded.token,created_by=excluded.created_by,updated_at=excluded.updated_at`,
+  )
+    .bind(clubId, code, c.get('member').id, now, now)
+    .run();
+  const row = await readInvite(c, clubId);
+  return c.json({ invite: toInvite(row!) }, 201);
+});
+
+clubRoutes.patch('/invite', async (c) => {
+  owner(c);
+  const clubId = c.get('club').id;
+  const row = await readInvite(c, clubId);
+  if (!row) throw new ApiError(404, 'INVITE_NOT_FOUND', 'Crie um link de convite primeiro.');
+  const input = await body(c, invitePasswordSchema);
+  const passwordHash = input.password
+    ? await invitePasswordDigest(pepperFor(c), clubId, input.password)
+    : null;
+  await c.env.DB.prepare('UPDATE club_invites SET password_hash=?,updated_at=? WHERE club_id=?')
+    .bind(passwordHash, Math.floor(Date.now() / 1000), clubId)
+    .run();
+  return c.json({ passwordProtected: Boolean(passwordHash) });
+});
+
+clubRoutes.delete('/invite', async (c) => {
+  owner(c);
+  await c.env.DB.prepare('DELETE FROM club_invites WHERE club_id=?').bind(c.get('club').id).run();
+  return c.json({ ok: true });
 });
 
 clubRoutes.post('/members/:id/recovery', async (c) => {

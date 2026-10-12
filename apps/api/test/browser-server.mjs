@@ -51,15 +51,20 @@ const mime = {
   '.woff': 'font/woff',
   '.png': 'image/png',
 };
+let client = 0;
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://127.0.0.1:8788');
     if (url.pathname.startsWith('/api/')) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
+      // A Cloudflare sempre define o IP do cliente; sem ele o rate limit por IP vira um
+      // balde único para toda a suíte e testes passam a interferir entre si.
+      const headers = { ...request.headers };
+      headers['cf-connecting-ip'] ??= `198.51.100.${(client++ % 250) + 1}`;
       const result = await mf.dispatchFetch(url.toString(), {
         method: request.method,
-        headers: request.headers,
+        headers,
         ...(['GET', 'HEAD'].includes(request.method) ? {} : { body: Buffer.concat(chunks) }),
       });
       response.statusCode = result.status;

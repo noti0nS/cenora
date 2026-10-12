@@ -12,7 +12,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open **http://127.0.0.1:8787**. The first door is the email one: type any address, press **Enviar código**, and read the six digits in the local outbox at **http://127.0.0.1:8787/api/dev/outbox** — development captures mail instead of sending it. You can also create a club without an account: choose **Criar meu clube**, enter your name, and save the private invite code plus your recovery code. Friends choose **Tenho um código de convite**.
+Open **http://127.0.0.1:8787**. The first door is the email one: type any address, press **Enviar código**, and read the six digits in the local outbox at **http://127.0.0.1:8787/api/dev/outbox** — development captures mail instead of sending it. You can also create a club without an account: choose **Criar meu clube**, enter your name, and save the private invite code plus your recovery code. Friends open the owner's **invite link** (`Convite → Criar link de convite`) or choose **Tenho um código de convite**.
 
 Run `pnpm db:migrate` after pulling schema changes. Existing club data, invitation codes, and sessions are preserved by the migrations. Local D1 state stays under `apps/api/.wrangler/state`. Club creation does not require a command or a pre-existing invitation.
 
@@ -72,12 +72,13 @@ Sessions keep the original cookie and browser-preference keys (`watchlist:*`), p
 
 - Every person has an **identity**, with or without an email. Email is one way to prove who you are, not a requirement: guests enter with a club invite and keep an identity that works across clubs.
 - Anyone can create a separate private club. Each club has a unique, high-entropy invite token. The creator confirms at least one way back: an email or the identity recovery code.
+- Owners can also share a club by **invite link** (`?convite=<token>`). The link never expires but can be revoked at any time, which makes the club private again; generating a new link invalidates the previous one. An optional invite password protects the whole link and can be set, changed, or removed without touching the link itself. The club code stay available as a secondary door.
 - One identity can belong to several clubs and switch between them from the profile menu. Members, lists, media, ratings, imports, and administrative operations stay scoped to the active club; another club cannot read or change them, even with a known record ID.
 - Sessions live 30 days without use and renew while used. Accounts expire at the 12-month mark and come back with an email code; guests do not expire by a cap — they would have no way back. Attaching an email starts that clock.
 - Guests can link an email in **Meu perfil → Acesso** without losing clubs. If the address already has an account, the app offers to bring the guest clubs over and refuses (never merging silently) when both sides have a profile in the same club — the club owner resolves that.
 - Recovery: generate an identity recovery code in your profile; rotating it signs other devices out. Club owners hand out a **scoped re-access code** for a member in **Configurações do clube → Quem faz parte**: it opens only that club, once, for seven days.
 - Re-access sessions cannot attach an email or unlock other clubs. Use the identity recovery code or sign in with the already-linked email for full access. Linked legacy profile codes and sessions also stay limited to their original club; rotating the identity recovery code invalidates those old profile codes and sessions.
-- Club tokens, recovery codes, re-access codes, and session tokens are stored as hashes. Raw codes are displayed only at creation or rotation.
+- Club codes, recovery codes, re-access codes, and session tokens are stored as hashes, and raw codes are displayed only at creation or rotation. Invite links are the deliberate exception: the token is stored so the owner can copy the link again, while an optional invite password is stored hashed.
 - Members maintain shared lists and group progress, but can edit only their own rating and personal progress. Only the owner can delete lists or administer members.
 - Rotating a club token revokes sessions active in that club; other clubs remain unaffected. Removing a member revokes sessions for that profile.
 - A shared title has one group progress record and one tracking/rating record per member, even when it still belongs to several legacy lists.

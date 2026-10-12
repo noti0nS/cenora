@@ -3,19 +3,23 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
+  Copy,
   Download,
   KeyRound,
   Link2,
+  Lock,
   LogIn,
   Plus,
   RefreshCw,
   Shield,
+  Trash2,
   UserMinus,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Club, ClubOption, Member, SessionState } from '@cenora/shared';
+import type { Club, ClubInvite, ClubOption, Member, SessionState } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
-import { Button, CodeReveal, Field, Modal, Segmented } from './ui';
+import { extractInviteToken, inviteLink } from '@/lib/invite';
+import { Button, CodeReveal, Field, Modal, Segmented, copyCode } from './ui';
 
 type Roster = (Member & { active: number; linked?: number })[];
 type Tab = 'people' | 'invite' | 'settings';
@@ -44,9 +48,12 @@ export function ClubsDialog({
   const [code, setCode] = useState<{ label: string; value: string } | null>(null);
   const [joinToken, setJoinToken] = useState('');
   const [joinName, setJoinName] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
   const [createName, setCreateName] = useState('');
   const [bringMode, setBringMode] = useState<'claim' | 'recovery'>('claim');
   const [bringCode, setBringCode] = useState('');
+  const [passwordEdit, setPasswordEdit] = useState(false);
+  const [passwordValue, setPasswordValue] = useState('');
 
   const user = session?.user ?? null;
   const scoped = Boolean(session?.scoped);
@@ -79,6 +86,12 @@ export function ClubsDialog({
     queryFn: () => api<Roster>('/club/members'),
     enabled: open && Boolean(club),
   });
+  const invite = useQuery({
+    queryKey: ['invite', club?.id],
+    queryFn: () => api<{ invite: ClubInvite | null }>('/club/invite'),
+    enabled: open && Boolean(club) && isOwner,
+  });
+  const currentInvite = invite.data?.invite ?? null;
 
   useEffect(() => {
     if (open) {
@@ -86,6 +99,9 @@ export function ClubsDialog({
       setAdding(false);
       setConfirm(null);
       setCode(null);
+      setJoinPassword('');
+      setPasswordEdit(false);
+      setPasswordValue('');
     }
   }, [open]);
 
@@ -128,14 +144,25 @@ export function ClubsDialog({
   const join = (e: React.FormEvent) => {
     e.preventDefault();
     void run(async () => {
+      const linked = extractInviteToken(joinToken);
       const data = await api<{ member: Member; club: Club }>(
-        '/auth/join',
-        json('POST', { name: joinName, token: joinToken.trim() }),
+        linked ? '/auth/invite' : '/auth/join',
+        json(
+          'POST',
+          linked
+            ? {
+                name: joinName,
+                token: linked,
+                ...(joinPassword ? { password: joinPassword } : {}),
+              }
+            : { name: joinName, token: joinToken.trim() },
+        ),
       );
       localStorage.setItem('watchlist:name', data.member.name);
       arrived(`Você entrou em ${data.club.name}.`);
       setJoinName('');
       setJoinToken('');
+      setJoinPassword('');
     });
   };
   const create = (e: React.FormEvent) => {
@@ -179,6 +206,48 @@ export function ClubsDialog({
       toast.success('Cópia exportada.');
     });
   const reveal = (label: string, value: string) => setCode({ label, value });
+  const refreshInvite = () => qc.invalidateQueries({ queryKey: ['invite', club?.id] });
+  const createInvite = () =>
+    run(async () => {
+      await api('/club/invite', json('POST'));
+      await refreshInvite();
+      toast.success('Link de convite criado.');
+    });
+  const rotateInvite = () =>
+    setConfirm({
+      label: 'Gerar um novo link? O link atual deixa de funcionar imediatamente.',
+      action: 'Gerar novo link',
+      run: async () => {
+        await api('/club/invite', json('POST'));
+        await refreshInvite();
+        toast.success('Novo link gerado.');
+      },
+    });
+  const revokeInvite = () =>
+    setConfirm({
+      label:
+        'Revogar o convite? O clube volta a ser privado e ninguém mais entra por este link. Quem já participa continua.',
+      action: 'Revogar convite',
+      run: async () => {
+        await api('/club/invite', json('DELETE'));
+        await refreshInvite();
+        toast.success('Convite revogado.');
+      },
+    });
+  const savePassword = () =>
+    run(async () => {
+      await api('/club/invite', json('PATCH', { password: passwordValue.trim() || null }));
+      await refreshInvite();
+      setPasswordEdit(false);
+      setPasswordValue('');
+      toast.success('Senha do convite atualizada.');
+    });
+  const clearPassword = () =>
+    run(async () => {
+      await api('/club/invite', json('PATCH', { password: null }));
+      await refreshInvite();
+      toast.success('Senha removida.');
+    });
 
   const peopleList = (
     <div className="roster" aria-live="polite">
@@ -266,7 +335,10 @@ export function ClubsDialog({
       />
       {addMode === 'join' && (
         <form className="stack" onSubmit={join}>
-          <Field label="Código do clube">
+          <Field
+            label="Código ou link do convite"
+            hint="Cole o código do clube ou o link que alguém compartilhou."
+          >
             <input
               autoComplete="off"
               spellCheck={false}
@@ -274,6 +346,17 @@ export function ClubsDialog({
               onChange={(e) => setJoinToken(e.target.value)}
             />
           </Field>
+          {Boolean(extractInviteToken(joinToken)) && (
+            <Field label="Senha do convite" hint="Só se o convite tiver senha.">
+              <input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={joinPassword}
+                onChange={(e) => setJoinPassword(e.target.value)}
+              />
+            </Field>
+          )}
           <Field label="Seu nome neste clube">
             <input
               autoComplete="nickname"
@@ -430,34 +513,168 @@ export function ClubsDialog({
                   {tab === 'people' && peopleList}
                   {tab === 'invite' && isOwner && (
                     <div className="stack">
-                      <p className="muted-note">
-                        Quem tiver o código do clube entra como participante, escolhendo o próprio
-                        nome. Por segurança, o código só aparece quando é gerado.
-                      </p>
-                      <button
-                        className="settings-action"
-                        disabled={busy}
-                        onClick={() =>
-                          setConfirm({
-                            label:
-                              'Gerar um novo código do clube? O anterior deixa de valer e os outros participantes são desconectados deste clube: eles voltam com o e-mail ou o código pessoal.',
-                            action: 'Gerar novo código',
-                            run: async () => {
-                              const r = await api<{ clubToken: string }>(
-                                '/club/token',
-                                json('POST'),
-                              );
-                              reveal(
-                                'Novo código do clube · compartilhe com seus amigos',
-                                r.clubToken,
-                              );
-                            },
-                          })
-                        }
-                      >
-                        <RefreshCw size={16} />
-                        Gerar novo código do clube
-                      </button>
+                      {invite.isPending ? (
+                        <p className="muted-note">Carregando o convite…</p>
+                      ) : invite.error ? (
+                        <p role="alert" className="error-note">
+                          {errorMessage(invite.error)}
+                        </p>
+                      ) : currentInvite ? (
+                        <>
+                          <p className="muted-note">
+                            Quem abrir este link entra como participante, escolhendo o próprio nome.
+                            O link não expira: revogue quando quiser que o clube volte a ser
+                            privado.
+                          </p>
+                          <div className="code-block">
+                            <span>
+                              Link de convite{' '}
+                              <small>
+                                {currentInvite.passwordProtected ? 'Com senha' : 'Sem senha'}
+                              </small>
+                            </span>
+                            <code>{inviteLink(currentInvite.token)}</code>
+                            <Button
+                              className="secondary"
+                              onClick={() => copyCode(inviteLink(currentInvite.token))}
+                            >
+                              <Copy size={15} />
+                              Copiar link
+                            </Button>
+                          </div>
+                          {passwordEdit ? (
+                            <form
+                              className="stack"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                void savePassword();
+                              }}
+                            >
+                              <Field
+                                label={
+                                  currentInvite.passwordProtected
+                                    ? 'Nova senha'
+                                    : 'Senha do convite'
+                                }
+                                hint="Pelo menos 4 caracteres. Quem abrir o link vai precisar dela."
+                              >
+                                <input
+                                  type="password"
+                                  autoComplete="off"
+                                  value={passwordValue}
+                                  onChange={(e) => setPasswordValue(e.target.value)}
+                                />
+                              </Field>
+                              <Button
+                                type="submit"
+                                busy={busy}
+                                disabled={passwordValue.trim().length < 4}
+                              >
+                                Salvar senha
+                              </Button>
+                              <button
+                                type="button"
+                                className="text-button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setPasswordEdit(false);
+                                  setPasswordValue('');
+                                }}
+                              >
+                                Cancelar
+                              </button>
+                            </form>
+                          ) : (
+                            <button
+                              className="settings-action"
+                              disabled={busy}
+                              onClick={() => {
+                                setPasswordValue('');
+                                setPasswordEdit(true);
+                              }}
+                            >
+                              <Lock size={16} />
+                              {currentInvite.passwordProtected
+                                ? 'Trocar a senha'
+                                : 'Exigir uma senha'}
+                            </button>
+                          )}
+                          {!passwordEdit && currentInvite.passwordProtected && (
+                            <button
+                              className="settings-action"
+                              disabled={busy}
+                              onClick={clearPassword}
+                            >
+                              <Lock size={16} />
+                              Remover a senha
+                            </button>
+                          )}
+                          <button
+                            className="settings-action"
+                            disabled={busy}
+                            onClick={rotateInvite}
+                          >
+                            <RefreshCw size={16} />
+                            Gerar um novo link
+                          </button>
+                          <button
+                            className="settings-action danger"
+                            disabled={busy}
+                            onClick={revokeInvite}
+                          >
+                            <Trash2 size={16} />
+                            Revogar o convite
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="muted-note">
+                            Gere um link para convidar amigos. Você pode exigir uma senha e revogar
+                            quando quiser — o clube volta a ser privado.
+                          </p>
+                          <button
+                            className="settings-action"
+                            disabled={busy}
+                            onClick={createInvite}
+                          >
+                            <Link2 size={16} />
+                            Criar link de convite
+                          </button>
+                        </>
+                      )}
+                      <details className="disclosure">
+                        <summary>Código do clube</summary>
+                        <div className="stack">
+                          <p className="muted-note">
+                            Quem tiver o código entra como participante, escolhendo o próprio nome.
+                            Por segurança, o código só aparece quando é gerado.
+                          </p>
+                          <button
+                            className="settings-action"
+                            disabled={busy}
+                            onClick={() =>
+                              setConfirm({
+                                label:
+                                  'Gerar um novo código do clube? O anterior deixa de valer e os outros participantes são desconectados deste clube: eles voltam com o e-mail ou o código pessoal.',
+                                action: 'Gerar novo código',
+                                run: async () => {
+                                  const r = await api<{ clubToken: string }>(
+                                    '/club/token',
+                                    json('POST'),
+                                  );
+                                  reveal(
+                                    'Novo código do clube · compartilhe com seus amigos',
+                                    r.clubToken,
+                                  );
+                                },
+                              })
+                            }
+                          >
+                            <RefreshCw size={16} />
+                            Gerar novo código do clube
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   )}
                   {tab === 'settings' && isOwner && (

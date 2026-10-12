@@ -24,6 +24,7 @@ import {
   type SessionUser,
 } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
+import { clearInviteParam, extractInviteToken } from '@/lib/invite';
 import { Button, Field, copyCode } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
 import { TurnstileField } from './turnstile-field';
@@ -92,12 +93,153 @@ export function Codes({
   );
 }
 
+// Entrada por link de convite (`?convite=<token>`). Vale para quem já tem conta e para
+// quem chega novo: o servidor decide se reaproveita a identidade ou cria uma.
+function InviteGate({
+  token,
+  onEnter,
+  onCancel,
+}: {
+  token: string;
+  onEnter: (member: Member, club: Club) => void;
+  onCancel: () => void;
+}) {
+  const [meta, setMeta] = useState<{ clubName: string; passwordRequired: boolean } | null>(null);
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{
+    member: Member;
+    club: Club;
+    recoveryCode?: string;
+  } | null>(null);
+  useEffect(() => {
+    setName(localStorage.getItem('watchlist:name') || '');
+  }, []);
+  useEffect(() => {
+    let live = true;
+    api<{ clubName: string; passwordRequired: boolean }>(
+      `/auth/invite/${encodeURIComponent(token)}`,
+    )
+      .then((data) => {
+        if (live) setMeta(data);
+      })
+      .catch((e) => {
+        if (live) setError(errorMessage(e));
+      });
+    return () => {
+      live = false;
+    };
+  }, [token]);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const data = await api<{ member: Member; club: Club; recoveryCode?: string }>(
+        '/auth/invite',
+        json('POST', { name, token, ...(password ? { password } : {}) }),
+      );
+      localStorage.setItem('watchlist:name', data.member.name);
+      clearInviteParam();
+      if (data.recoveryCode) setResult(data);
+      else onEnter(data.member, data.club);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (result)
+    return (
+      <Codes
+        recoveryCode={result.recoveryCode}
+        onDone={() => onEnter(result.member, result.club)}
+      />
+    );
+  if (!meta)
+    return (
+      <>
+        <p className="eyebrow">CONVITE</p>
+        <h1>{error ? 'Convite indisponível.' : 'Um instante…'}</h1>
+        {error ? (
+          <p role="alert" className="error-note">
+            {error}
+          </p>
+        ) : (
+          <p className="access-intro">Abrindo o convite.</p>
+        )}
+        <div className="access-actions">
+          <button className="text-button recovery-link" disabled={busy} onClick={onCancel}>
+            Voltar para a entrada
+          </button>
+        </div>
+      </>
+    );
+  return (
+    <>
+      <p className="eyebrow">CONVITE</p>
+      <h1>
+        Você foi convidado
+        <br />
+        para <em>{meta.clubName}.</em>
+      </h1>
+      <p className="access-intro">
+        Escolha como quer ser chamado{meta.passwordRequired ? ' e informe a senha do convite' : ''}.
+      </p>
+      <form onSubmit={submit}>
+        <Field label="Como podemos chamar você?">
+          <input
+            autoComplete="nickname"
+            placeholder="Seu nome"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        {meta.passwordRequired && (
+          <Field label="Senha do convite">
+            <input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </Field>
+        )}
+        {error && (
+          <p role="alert" className="error-note">
+            {error}
+          </p>
+        )}
+        <Button
+          type="submit"
+          busy={busy}
+          disabled={name.trim().length < 2 || (meta.passwordRequired && !password.trim())}
+        >
+          Entrar no clube
+          <ArrowRight size={17} />
+        </Button>
+      </form>
+      <div className="access-actions">
+        <button className="text-button recovery-link" disabled={busy} onClick={onCancel}>
+          Voltar para a entrada
+        </button>
+      </div>
+    </>
+  );
+}
+
 export function Access({
   onEnter,
   session,
+  onInviteDismissed,
 }: {
   onEnter: (member: Member, club: Club) => void;
   session?: SessionState | null;
+  onInviteDismissed?: () => void;
 }) {
   const qc = useQueryClient();
   const fromSession = useMemo<Account | null>(
@@ -106,6 +248,11 @@ export function Access({
   );
   const [account, setAccount] = useState<Account | null>(null);
   const active = account ?? fromSession;
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  useEffect(() => {
+    const token = new URL(window.location.href).searchParams.get('convite');
+    if (token) setInviteToken(token);
+  }, []);
   const signOut = async () => {
     try {
       await api('/auth/logout', json('POST'));
@@ -115,6 +262,30 @@ export function Access({
     setAccount(null);
     void qc.invalidateQueries({ queryKey: ['session'] });
   };
+  if (inviteToken)
+    return (
+      <main className="access-page">
+        <div className="access-decoration" aria-hidden="true">
+          <span className="ticket ticket-two">
+            <Film size={48} strokeWidth={1} />
+          </span>
+          <span className="access-dot" />
+        </div>
+        <section className="access-card">
+          <Wordmark />
+          <InviteGate
+            token={inviteToken}
+            onEnter={onEnter}
+            onCancel={() => {
+              clearInviteParam();
+              setInviteToken(null);
+              onInviteDismissed?.();
+            }}
+          />
+          <footer className="access-footer">um filme, uma série, uma boa conversa.</footer>
+        </section>
+      </main>
+    );
   if (active)
     return (
       <main className="access-page">
@@ -126,22 +297,29 @@ export function Access({
         </div>
         <section className="access-card">
           <Wordmark />
-          <ClubGate account={active} onEnter={onEnter} onSignOut={signOut} />
+          <ClubGate
+            account={active}
+            onEnter={onEnter}
+            onSignOut={signOut}
+            onInvite={setInviteToken}
+          />
           <footer className="access-footer">um filme, uma série, uma boa conversa.</footer>
         </section>
       </main>
     );
-  return <Door onEnter={onEnter} onAccount={setAccount} />;
+  return <Door onEnter={onEnter} onAccount={setAccount} onInvite={setInviteToken} />;
 }
 
 function ClubGate({
   account,
   onEnter,
   onSignOut,
+  onInvite,
 }: {
   account: Account;
   onEnter: (member: Member, club: Club) => void;
   onSignOut: () => Promise<void>;
+  onInvite: (token: string) => void;
 }) {
   const [view, setView] = useState<'list' | 'new' | 'join'>('list');
   const [name, setName] = useState('');
@@ -181,6 +359,11 @@ function ClubGate({
   };
   const join = async (event: React.FormEvent) => {
     event.preventDefault();
+    const linked = extractInviteToken(token);
+    if (linked) {
+      onInvite(linked);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -252,7 +435,10 @@ function ClubGate({
               onChange={(e) => setName(e.target.value)}
             />
           </Field>
-          <Field label="Código do clube" hint="Peça o código a quem criou o clube.">
+          <Field
+            label="Código do clube"
+            hint="Peça o código a quem criou o clube, ou cole o link do convite."
+          >
             <input
               autoComplete="off"
               autoCapitalize="none"
@@ -352,9 +538,11 @@ function ClubGate({
 function Door({
   onEnter,
   onAccount,
+  onInvite,
 }: {
   onEnter: (member: Member, club: Club) => void;
   onAccount: (account: Account) => void;
+  onInvite: (token: string) => void;
 }) {
   const form = useForm<Form>({
     resolver: zodResolver(schema),
@@ -454,6 +642,11 @@ function Door({
   const submitLegacy = form.handleSubmit(async (values) => {
     setError('');
     try {
+      const linked = mode === 'join' ? extractInviteToken(values.code) : null;
+      if (linked) {
+        onInvite(linked);
+        return;
+      }
       if (mode !== 'create' && values.code.length < 12) {
         form.setError('code', { message: 'Confira o código de convite.' });
         return;
@@ -670,7 +863,10 @@ function Door({
                 </Field>
               )}
               {mode !== 'create' && mode !== 'claim' && (
-                <Field label="Código do clube" hint="Peça o código a quem criou o clube.">
+                <Field
+                  label="Código do clube"
+                  hint="Peça o código a quem criou o clube, ou cole o link do convite."
+                >
                   <div className="private-code-input">
                     <input
                       type={showClubCode ? 'text' : 'password'}

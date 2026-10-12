@@ -145,7 +145,8 @@ function App() {
     [settings, setSettings] = useState(false),
     [clubsOpen, setClubsOpen] = useState(false),
     [importing, setImporting] = useState(false),
-    [spinning, setSpinning] = useState(false);
+    [spinning, setSpinning] = useState(false),
+    [inviteOpen, setInviteOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const q = useDebounced(search);
   useEffect(() => {
@@ -158,6 +159,8 @@ function App() {
       setKind((url.searchParams.get('kind') || saved) === 'tv' ? 'tv' : 'movie');
       setMine(url.searchParams.get('view') === 'mine');
       setMediaId(url.searchParams.get('media'));
+      // Um link de convite aberto com clube ativo abre a tela de convite.
+      setInviteOpen(Boolean(url.searchParams.get('convite')));
     };
     read();
     window.addEventListener('popstate', read);
@@ -205,6 +208,7 @@ function App() {
     url.searchParams.set('kind', nextKind);
     url.searchParams.delete('view');
     url.searchParams.delete('media');
+    url.searchParams.delete('convite');
     if (nextMine) url.searchParams.set('view', 'mine');
     if (nextMedia) url.searchParams.set('media', nextMedia);
     window.history.pushState({}, '', url);
@@ -260,6 +264,7 @@ function App() {
     setSearch('');
     setStatus('');
     setSearchOpen(false);
+    setInviteOpen(false);
     void qc.invalidateQueries({ queryKey: ['session'] });
   };
   const logout = async () => {
@@ -348,8 +353,12 @@ function App() {
           <p>{errorMessage(session.error)}</p>
           <Button onClick={() => session.refetch()}>Tentar novamente</Button>
         </div>
-      ) : !member ? (
-        <Access onEnter={enter} session={session.data ?? null} />
+      ) : !member || inviteOpen ? (
+        <Access
+          onEnter={enter}
+          session={session.data ?? null}
+          onInviteDismissed={() => setInviteOpen(false)}
+        />
       ) : (
         <div className="app-shell" data-kind={kind}>
           <a href="#shelf" className="skip-link">

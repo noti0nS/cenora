@@ -261,6 +261,82 @@ describe('private club on a real Worker + D1 runtime', () => {
       (await request('/auth/join', 'POST', { name: 'Beto', token: other.clubToken }, '')).status,
     ).toBe(201);
   });
+  it('shares a club through a revocable invite link with an optional password', async () => {
+    expect(await (await request('/club/invite')).json()).toEqual({ invite: null });
+    // Sem convite, o clube segue privado.
+    expect((await request('/auth/invite/nao-existe-123456', 'GET', undefined, '')).status).toBe(
+      404,
+    );
+    const created = (await (await request('/club/invite', 'POST')).json()) as any;
+    const inviteToken = created.invite.token;
+    expect(inviteToken).toMatch(/^[a-f0-9]{48}$/);
+    expect(created.invite.passwordProtected).toBe(false);
+    const meta = (await (
+      await request('/auth/invite/' + inviteToken, 'GET', undefined, '')
+    ).json()) as any;
+    expect(meta.clubName).toBeTruthy();
+    expect(meta.passwordRequired).toBe(false);
+    // Sem sessão, o link cria uma identidade e devolve o código de recuperação.
+    const joined = await request('/auth/invite', 'POST', { name: 'Lia', token: inviteToken }, '');
+    expect(joined.status).toBe(201);
+    const joinedData = (await joined.json()) as any;
+    expect(joinedData.member.name).toBe('Lia');
+    expect(joinedData.recoveryCode).toBeTruthy();
+    // Uma senha passa a ser exigida.
+    expect((await request('/club/invite', 'PATCH', { password: 'segredo' })).status).toBe(200);
+    expect(
+      ((await (await request('/auth/invite/' + inviteToken, 'GET', undefined, '')).json()) as any)
+        .passwordRequired,
+    ).toBe(true);
+    expect(
+      (await request('/auth/invite', 'POST', { name: 'Sem senha', token: inviteToken }, '')).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(
+          '/auth/invite',
+          'POST',
+          { name: 'Senha errada', token: inviteToken, password: 'errada' },
+          '',
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(
+          '/auth/invite',
+          'POST',
+          { name: 'Com senha', token: inviteToken, password: 'segredo' },
+          '',
+        )
+      ).status,
+    ).toBe(201);
+    // Girar o link derruba o antigo, mas a senha sobrevive.
+    const rotated = (await (await request('/club/invite', 'POST')).json()) as any;
+    expect(rotated.invite.token).not.toBe(inviteToken);
+    expect(rotated.invite.passwordProtected).toBe(true);
+    expect((await request('/auth/invite/' + inviteToken, 'GET', undefined, '')).status).toBe(404);
+    expect(
+      (
+        await request(
+          '/auth/invite',
+          'POST',
+          { name: 'De volta', token: rotated.invite.token, password: 'segredo' },
+          '',
+        )
+      ).status,
+    ).toBe(201);
+    // Revogar devolve o clube ao estado privado.
+    expect((await request('/club/invite', 'DELETE')).status).toBe(200);
+    expect(
+      (await request('/auth/invite/' + rotated.invite.token, 'GET', undefined, '')).status,
+    ).toBe(404);
+    expect((await (await request('/club/invite')).json()) as any).toEqual({ invite: null });
+    // Só o dono administra o convite.
+    const outsider = await join('Fora');
+    expect((await request('/club/invite', 'GET', undefined, outsider.cookie)).status).toBe(403);
+    expect((await request('/club/invite', 'POST', undefined, outsider.cookie)).status).toBe(403);
+  });
   it('migrates an existing club without losing its invite, sessions, lists, ratings, or import mappings', async () => {
     const legacy = new Miniflare(
       convertV4MiniflareOptions({

@@ -9,6 +9,7 @@ import {
   emailVerifySchema,
   claimSchema,
   linkSchema,
+  inviteJoinSchema,
   normalizeName,
   type Member,
   type Club,
@@ -26,6 +27,8 @@ import {
   hit,
   constantTimeEqual,
   rateLimit,
+  pepperFor,
+  invitePasswordDigest,
   type AppEnv,
 } from './lib';
 import { mailerFor, accessCodeMail } from './mailer';
@@ -271,18 +274,6 @@ async function findClub(c: Context<AppEnv>, raw: string): Promise<ClubRow> {
     .first<ClubRow>();
   if (!club) throw new ApiError(401, 'INVALID_TOKEN', 'O código do clube não é válido.');
   return club;
-}
-
-function pepperFor(c: Context<AppEnv>) {
-  const pepper =
-    c.env.AUTH_PEPPER || (c.env.ENVIRONMENT === 'development' ? 'development-pepper' : '');
-  if (!pepper)
-    throw new ApiError(
-      503,
-      'AUTH_NOT_CONFIGURED',
-      'O acesso por e-mail ainda não está disponível. Tente novamente mais tarde.',
-    );
-  return pepper;
 }
 
 async function sixDigitCode() {
@@ -581,16 +572,19 @@ auth.post('/create', async (c) => {
   return c.json({ member, club, recoveryCode, clubToken: clubCode }, 201);
 });
 
-auth.post('/join', async (c) => {
-  await rateLimit(c);
-  const input = await body(c, identitySchema);
-  const club = await findClub(c, input.token);
+// Entrar num clube cria ou reaproveita o perfil da identidade atual. Serve tanto ao
+// código do clube quanto ao link de convite.
+async function joinClub(
+  c: Context<AppEnv>,
+  club: { id: string; name: string; token_version: number },
+  name: string,
+) {
   const session = await resolveSession(c);
   requireUnscoped(session);
   const nameTaken = async () =>
     Boolean(
       await c.env.DB.prepare('SELECT id FROM members WHERE club_id=? AND normalized_name=?')
-        .bind(club.id, normalizeName(input.name))
+        .bind(club.id, normalizeName(name))
         .first(),
     );
   if (session?.user) {
@@ -609,7 +603,7 @@ auth.post('/join', async (c) => {
         'NAME_EXISTS',
         'Este nome já tem um perfil neste clube. Escolha outro nome.',
       );
-    const member: Member = { id: id(), name: input.name, role: 'member' };
+    const member: Member = { id: id(), name, role: 'member' };
     try {
       await c.env.DB.prepare(
         "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role,user_id) VALUES (?,?,?,?,?,'member',?)",
@@ -647,7 +641,7 @@ auth.post('/join', async (c) => {
   }
   const userId = id();
   const recoveryCode = token();
-  const member: Member = { id: id(), name: input.name, role: 'member' };
+  const member: Member = { id: id(), name, role: 'member' };
   const now = Math.floor(Date.now() / 1000);
   try {
     await c.env.DB.batch([
@@ -672,6 +666,58 @@ auth.post('/join', async (c) => {
   }
   await issueSession(c, member.id, userId);
   return c.json({ member, club: { id: club.id, name: club.name }, recoveryCode }, 201);
+}
+
+auth.post('/join', async (c) => {
+  await rateLimit(c);
+  const input = await body(c, identitySchema);
+  const club = await findClub(c, input.token);
+  return joinClub(c, club, input.name);
+});
+
+type InviteRow = {
+  club_id: string;
+  token: string;
+  password_hash: string | null;
+  name: string;
+  token_version: number;
+};
+
+async function findInvite(c: Context<AppEnv>, value: string) {
+  return c.env.DB.prepare(
+    'SELECT i.club_id,i.token,i.password_hash,c.name,c.token_version FROM club_invites i JOIN clubs c ON c.id=i.club_id WHERE i.token=?',
+  )
+    .bind(value)
+    .first<InviteRow>();
+}
+
+auth.get('/invite/:token', async (c) => {
+  const value = c.req.param('token');
+  const row = value.length >= 12 && value.length <= 128 ? await findInvite(c, value) : null;
+  if (!row)
+    throw new ApiError(404, 'INVITE_NOT_FOUND', 'Este link de convite não está mais ativo.');
+  return c.json({ clubName: row.name, passwordRequired: Boolean(row.password_hash) });
+});
+
+auth.post('/invite', async (c) => {
+  await rateLimit(c);
+  const input = await body(c, inviteJoinSchema);
+  const row = await findInvite(c, input.token);
+  if (!row)
+    throw new ApiError(404, 'INVITE_NOT_FOUND', 'Este link de convite não está mais ativo.');
+  if (row.password_hash) {
+    if (!input.password)
+      throw new ApiError(401, 'INVITE_PASSWORD', 'Informe a senha deste convite.');
+    await hit(c, `invite:${row.club_id}`, 900, 20, 'Muitas tentativas de senha. Aguarde um pouco.');
+    const digest = await invitePasswordDigest(pepperFor(c), row.club_id, input.password);
+    if (!constantTimeEqual(row.password_hash, digest))
+      throw new ApiError(401, 'INVITE_PASSWORD', 'Senha incorreta para este convite.');
+  }
+  return joinClub(
+    c,
+    { id: row.club_id, name: row.name, token_version: row.token_version },
+    input.name,
+  );
 });
 
 auth.post('/recover', async (c) => {

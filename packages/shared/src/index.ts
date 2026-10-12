@@ -49,6 +49,19 @@ export const identitySchema = z.object({
   name: displayName,
   token: z.string().trim().min(12).max(128),
 });
+export const inviteJoinSchema = z.object({
+  name: displayName,
+  token: z.string().trim().min(12).max(128),
+  password: z.string().trim().max(128).optional(),
+});
+export const invitePasswordSchema = z.object({
+  password: z
+    .string()
+    .trim()
+    .min(4, 'Use pelo menos 4 caracteres.')
+    .max(128, 'A senha é longa demais.')
+    .nullable(),
+});
 export const recoverySchema = z.object({
   name: displayName.optional(),
   token: z.string().trim().min(12).max(128),
@@ -103,6 +116,11 @@ export interface Member {
 export interface Club {
   id: string;
   name: string;
+}
+export interface ClubInvite {
+  token: string;
+  passwordProtected: boolean;
+  createdAt: number;
 }
 export interface Watchlist {
   id: string;

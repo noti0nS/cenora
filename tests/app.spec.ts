@@ -558,6 +558,47 @@ test('an owner claim code opens a scoped session with a clear notice', async ({
   }
 });
 
+test('an owner shares a revocable invite link and a friend joins by opening it', async ({
+  browser,
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Clubes e participantes/ }).click();
+  await page.getByRole('button', { name: 'Convite', exact: true }).click();
+  const create = page.getByRole('button', { name: 'Criar link de convite' });
+  if (await create.isVisible()) await create.click();
+  const link = (await page.locator('.code-block code').first().textContent())!;
+  expect(link).toContain('convite=');
+  await page.getByRole('button', { name: 'Exigir uma senha' }).click();
+  await page.getByLabel('Senha do convite').fill('segredo');
+  await page.getByRole('button', { name: 'Salvar senha' }).click();
+  await expect(page.getByText('Com senha', { exact: true })).toBeVisible();
+
+  const context = await browser.newContext();
+  try {
+    const friend = await context.newPage();
+    await friend.goto(link);
+    await expect(friend.getByRole('heading', { name: /Você foi convidado/ })).toBeVisible();
+    await friend.getByLabel('Como podemos chamar você?').fill('Nina');
+    await friend.getByLabel('Senha do convite').fill('segredo');
+    await friend.getByRole('button', { name: 'Entrar no clube' }).click();
+    await expect(friend.getByRole('heading', { name: 'Seu lugar está guardado.' })).toBeVisible();
+    await friend
+      .getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' })
+      .check();
+    await friend.getByRole('button', { name: 'Ir para a Cenora' }).click();
+    await expect(friend.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await expect(friend.getByRole('button', { name: 'Perfil de Nina' })).toBeVisible();
+    // Quem já está num clube também pode abrir o link e voltar sem entrar de novo.
+    await friend.goto(link);
+    await expect(friend.getByRole('heading', { name: /Você foi convidado/ })).toBeVisible();
+    await friend.getByRole('button', { name: 'Voltar para a entrada' }).click();
+    await expect(friend.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test('a guest profile links an email from settings', async ({ browser }) => {
   const email = 'gina@cenora.test';
   const context = await browser.newContext();

@@ -101,3 +101,18 @@ export async function hit(
 export async function rateLimit(c: Context<AppEnv>) {
   await hit(c, `ip:${c.req.header('CF-Connecting-IP') || 'local'}`, 300, 12);
 }
+export function pepperFor(c: Context<AppEnv>) {
+  const pepper =
+    c.env.AUTH_PEPPER || (c.env.ENVIRONMENT === 'development' ? 'development-pepper' : '');
+  if (!pepper)
+    throw new ApiError(
+      503,
+      'AUTH_NOT_CONFIGURED',
+      'Este recurso ainda não está disponível. Tente novamente mais tarde.',
+    );
+  return pepper;
+}
+// O contexto é o clube (e não o token) para a senha sobreviver à rotação do link.
+export function invitePasswordDigest(pepper: string, clubId: string, password: string) {
+  return hmac(pepper, `invite:${clubId}:${password}`);
+}
