@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, afterEach, describe, it, expect } from 'vitest';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'esbuild';
 import { readFile, mkdir, readdir } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { resolve } from 'node:path';
 import { screenshotEntries } from '@cenora/shared/import';
 
@@ -49,6 +49,41 @@ async function manual(kind = 'movie', title = 'A Origem') {
   expect(res.status).toBe(201);
   return { id: ((await res.json()) as any).id, listId: list.id };
 }
+async function migrate(target: D1Database) {
+  for (const migration of (await readdir('migrations'))
+    .filter((name) => name.endsWith('.sql'))
+    .sort()) {
+    const statements = (await readFile(`migrations/${migration}`, 'utf8'))
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    await target.batch(statements.map((statement) => target.prepare(statement)));
+  }
+}
+async function outboxCode(email: string) {
+  const row = (await db
+    .prepare('SELECT text FROM mail_outbox WHERE to_email=? ORDER BY rowid DESC LIMIT 1')
+    .bind(email)
+    .first()) as { text: string } | null;
+  expect(row).not.toBeNull();
+  return row!.text.match(/(\d{6})/)![1];
+}
+async function loginByEmail(email: string) {
+  const address = email.trim().toLowerCase();
+  const started = await request('/auth/email/start', 'POST', { email: address }, '');
+  expect(started.status).toBe(200);
+  const verified = await request(
+    '/auth/email/verify',
+    'POST',
+    { email: address, code: await outboxCode(address) },
+    '',
+  );
+  expect(verified.status).toBe(200);
+  return {
+    cookie: verified.headers.get('set-cookie')!.split(';')[0],
+    ...((await verified.json()) as any),
+  };
+}
 beforeAll(async () => {
   await mkdir('.test', { recursive: true });
   await build({
@@ -71,15 +106,7 @@ beforeEach(async () => {
     }),
   );
   db = (await mf.getD1Database('DB')) as unknown as D1Database;
-  for (const migration of (await readdir('migrations'))
-    .filter((name) => name.endsWith('.sql'))
-    .sort()) {
-    const statements = (await readFile(`migrations/${migration}`, 'utf8'))
-      .split(';')
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-    await db.batch(statements.map((statement) => db.prepare(statement)));
-  }
+  await migrate(db);
   const res = await request('/auth/create', 'POST', { name: 'Dono' }, '');
   expect(res.status).toBe(201);
   ownerCookie = res.headers.get('set-cookie')!.split(';')[0];
@@ -303,6 +330,11 @@ describe('private club on a real Worker + D1 runtime', () => {
         .map((s) => s.trim())
         .filter(Boolean);
       await previous.batch(migration.map((s) => previous.prepare(s)));
+      const accounts = (await readFile('migrations/0005_email_accounts.sql', 'utf8'))
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await previous.batch(accounts.map((s) => previous.prepare(s)));
       const session = await legacy.dispatchFetch('http://localhost/api/auth/session', {
         headers: { Cookie: 'watchlist_session=' + oldSession },
       });
@@ -724,5 +756,210 @@ describe('private club on a real Worker + D1 runtime', () => {
       last = r.status;
     }
     expect(last).toBe(429);
+  });
+});
+describe('email access on the same runtime', () => {
+  it('creates a passwordless account, normalizes the address, and reuses it later', async () => {
+    const started = await request('/auth/email/start', 'POST', { email: '  ANA@Example.COM ' }, '');
+    expect(started.status).toBe(200);
+    const verified = await request(
+      '/auth/email/verify',
+      'POST',
+      { email: 'ANA@example.com', code: await outboxCode('ana@example.com') },
+      '',
+    );
+    expect(verified.status).toBe(200);
+    const first = (await verified.json()) as any;
+    expect(first.user.email).toBe('ana@example.com');
+    expect(first.isNewUser).toBe(true);
+    expect(first.member).toBeNull();
+    expect(first.club).toBeNull();
+    expect(first.clubs).toEqual([]);
+    const cookie = verified.headers.get('set-cookie')!.split(';')[0];
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, cookie)
+    ).json()) as any;
+    expect(session.user.email).toBe('ana@example.com');
+    expect(session.member).toBeNull();
+    expect(session.scoped).toBe(false);
+    expect(session.clubs).toEqual([]);
+    expect(((await db.prepare('SELECT COUNT(*) count FROM users').first()) as any).count).toBe(1);
+    await db.prepare('DELETE FROM auth_attempts').run();
+    const again = await loginByEmail('ana@example.com');
+    expect(again.user.id).toBe(first.user.id);
+    expect(again.isNewUser).toBe(false);
+    expect(((await db.prepare('SELECT COUNT(*) count FROM users').first()) as any).count).toBe(1);
+  });
+  it('reports profile sessions without an identity', async () => {
+    const session = (await (await request('/auth/session')).json()) as any;
+    expect(session.user).toBeNull();
+    expect(session.clubs).toEqual([]);
+    expect(session.member.id).toBe(ownerId);
+  });
+  it('stores only a peppered hash of the six-digit code', async () => {
+    const email = 'heitor@example.com';
+    await request('/auth/email/start', 'POST', { email }, '');
+    const code = await outboxCode(email);
+    const row = (await db
+      .prepare('SELECT code_hash FROM login_codes WHERE normalized_email=?')
+      .bind(email)
+      .first()) as any;
+    expect(row.code_hash).not.toContain(code);
+    expect(row.code_hash).toBe(
+      createHmac('sha256', 'development-pepper').update(`${email}:${code}`).digest('hex'),
+    );
+  });
+  it('blocks after five wrong codes and clears the code', async () => {
+    const email = 'beto@example.com';
+    await request('/auth/email/start', 'POST', { email }, '');
+    const code = await outboxCode(email);
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await request('/auth/email/verify', 'POST', { email, code: wrong }, '');
+      expect(response.status).toBe(400);
+    }
+    const blocked = await request('/auth/email/verify', 'POST', { email, code: wrong }, '');
+    expect(blocked.status).toBe(429);
+    expect(((await blocked.json()) as any).error.code).toBe('TOO_MANY_ATTEMPTS');
+    expect((await request('/auth/email/verify', 'POST', { email, code }, '')).status).toBe(400);
+    expect(
+      ((await db.prepare('SELECT COUNT(*) count FROM login_codes').first()) as any).count,
+    ).toBe(0);
+  });
+  it('expires codes and clears them', async () => {
+    const email = 'caio@example.com';
+    await request('/auth/email/start', 'POST', { email }, '');
+    const code = await outboxCode(email);
+    await db
+      .prepare('UPDATE login_codes SET expires_at=0 WHERE normalized_email=?')
+      .bind(email)
+      .run();
+    const expired = await request('/auth/email/verify', 'POST', { email, code }, '');
+    expect(expired.status).toBe(400);
+    expect(((await expired.json()) as any).error.code).toBe('CODE_EXPIRED');
+    expect(
+      ((await db.prepare('SELECT COUNT(*) count FROM login_codes').first()) as any).count,
+    ).toBe(0);
+  });
+  it('cools down repeated code requests per address and validates the address', async () => {
+    const email = 'dora@example.com';
+    expect((await request('/auth/email/start', 'POST', { email }, '')).status).toBe(200);
+    const second = await request('/auth/email/start', 'POST', { email }, '');
+    expect(second.status).toBe(429);
+    expect(((await second.json()) as any).error.code).toBe('RATE_LIMIT');
+    expect(
+      (await request('/auth/email/start', 'POST', { email: 'eva@example.com' }, '')).status,
+    ).toBe(200);
+    expect((await request('/auth/email/start', 'POST', { email: 'não-é-email' }, '')).status).toBe(
+      400,
+    );
+  });
+  it('renews sessions with use and stops at the account cap', async () => {
+    const account = await loginByEmail('fabi@example.com');
+    const tokenHash = digest(account.cookie.split('=')[1]);
+    const now = Math.floor(Date.now() / 1000);
+    await db
+      .prepare('UPDATE sessions SET expires_at=? WHERE token_hash=?')
+      .bind(now + 86400, tokenHash)
+      .run();
+    const renewed = await request('/auth/session', 'GET', undefined, account.cookie);
+    expect(renewed.status).toBe(200);
+    expect(renewed.headers.get('set-cookie')).toBeTruthy();
+    const row = (await db
+      .prepare('SELECT expires_at FROM sessions WHERE token_hash=?')
+      .bind(tokenHash)
+      .first()) as any;
+    expect(row.expires_at).toBeGreaterThan(now + 20 * 86400);
+    await db
+      .prepare('UPDATE sessions SET created_at=?, expires_at=? WHERE token_hash=?')
+      .bind(now - 366 * 86400, now + 86400, tokenHash)
+      .run();
+    const capped = await request('/auth/session', 'GET', undefined, account.cookie);
+    expect(capped.status).toBe(200);
+    expect(capped.headers.get('set-cookie')).toBeNull();
+    const cappedRow = (await db
+      .prepare('SELECT expires_at FROM sessions WHERE token_hash=?')
+      .bind(tokenHash)
+      .first()) as any;
+    expect(cappedRow.expires_at).toBe(now + 86400);
+  });
+  it('renews profile sessions without a hard cap', async () => {
+    const tokenHash = digest(ownerCookie.split('=')[1]);
+    const now = Math.floor(Date.now() / 1000);
+    await db
+      .prepare('UPDATE sessions SET created_at=?, expires_at=? WHERE token_hash=?')
+      .bind(now - 400 * 86400, now + 86400, tokenHash)
+      .run();
+    const response = await request('/club/lists');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toBeTruthy();
+  });
+  it('switches between clubs and signs out of every device', async () => {
+    const account = await loginByEmail('gabi@example.com');
+    const other = await createClub('Outra pessoa');
+    const otherClub = (await db
+      .prepare('SELECT club_id FROM members WHERE id=?')
+      .bind(other.member.id)
+      .first()) as any;
+    await db.batch([
+      db.prepare('UPDATE members SET user_id=? WHERE id=?').bind(account.user.id, ownerId),
+      db.prepare('UPDATE members SET user_id=? WHERE id=?').bind(account.user.id, other.member.id),
+    ]);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(session.clubs.map((option: any) => option.memberId).sort()).toEqual(
+      [ownerId, other.member.id].sort(),
+    );
+    const switched = await request(
+      '/auth/club',
+      'POST',
+      { memberId: other.member.id },
+      account.cookie,
+    );
+    expect(switched.status).toBe(200);
+    expect(((await switched.json()) as any).club.id).toBe(otherClub.club_id);
+    const active = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(active.member.id).toBe(other.member.id);
+    expect(active.club.id).toBe(otherClub.club_id);
+    expect((await request('/club/lists', 'GET', undefined, account.cookie)).status).toBe(200);
+    expect(
+      (await request('/auth/club', 'POST', { memberId: 'outro-perfil' }, account.cookie)).status,
+    ).toBe(404);
+    const out = await request('/auth/logout-all', 'POST', undefined, account.cookie);
+    expect(out.status).toBe(200);
+    const after = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(after.user).toBeNull();
+    expect(
+      (await request('/auth/club', 'POST', { memberId: ownerId }, account.cookie)).status,
+    ).toBe(401);
+  });
+  it('never exposes the development outbox outside development', async () => {
+    const production = new Miniflare(
+      convertV4MiniflareOptions({
+        modules: true,
+        scriptPath: resolve('.test/worker.mjs'),
+        compatibilityDate: '2026-10-11',
+        d1Databases: { DB: '44444444-4444-4444-8444-444444444444' },
+        bindings: { ENVIRONMENT: 'production' },
+      }),
+    );
+    try {
+      await migrate((await production.getD1Database('DB')) as unknown as D1Database);
+      expect((await production.dispatchFetch('http://localhost/api/dev/outbox')).status).toBe(404);
+      const start = await production.dispatchFetch('http://localhost/api/auth/email/start', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'sem-provedor@example.com' }),
+      });
+      expect(start.status).toBe(503);
+      expect(((await start.json()) as any).error.code).toBe('MAIL_UNAVAILABLE');
+    } finally {
+      await production.dispose();
+    }
   });
 });

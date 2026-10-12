@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { auth, currentMember } from './auth';
 import { mediaRoutes } from './media';
 import { clubRoutes } from './club';
+import { outboxEnabled } from './mailer';
 import { ApiError, type AppEnv } from './lib';
 
 const app = new Hono<AppEnv>();
@@ -34,6 +35,13 @@ app.use('/api/*', async (c, next) => {
 });
 app.get('/api/health', (c) => c.json({ ok: true }));
 app.route('/api/auth', auth);
+app.get('/api/dev/outbox', async (c) => {
+  if (!outboxEnabled(c)) throw new ApiError(404, 'NOT_FOUND', 'Esta ação não foi encontrada.');
+  const rows = await c.env.DB.prepare(
+    'SELECT to_email,subject,text,created_at FROM mail_outbox ORDER BY created_at DESC,rowid DESC LIMIT 20',
+  ).all();
+  return c.json({ messages: rows.results });
+});
 app.use('/api/*', async (c, next) => {
   if (!(await currentMember(c)))
     throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
@@ -71,6 +79,8 @@ export default {
       env.DB.batch([
         env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now),
         env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at<?').bind(now),
+        env.DB.prepare('DELETE FROM login_codes WHERE expires_at<?').bind(now),
+        env.DB.prepare('DELETE FROM mail_outbox WHERE created_at<?').bind(now - 30 * 86400),
         env.DB.prepare('DELETE FROM provider_cache WHERE expires_at<?').bind(
           Date.now() - 30 * 86400000,
         ),
