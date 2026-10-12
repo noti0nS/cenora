@@ -200,30 +200,60 @@ export async function renderShareCard(card: ShareCard): Promise<Blob> {
     ),
   );
 }
-export function shareText(card: ShareCard) {
+export const shareUrl = 'https://cenora.club';
+/** Text shared alongside the image, without the link. */
+export function shareCaption(card: ShareCard) {
   const parts = [card.title];
   if (card.clubRating != null) parts.push(`${card.clubName || 'Clube'}: ${score(card.clubRating)}`);
   if (card.myRating != null) parts.push(`minha nota: ${score(card.myRating)}`);
-  return `${parts.join(' · ')} — https://cenora.club`;
+  return parts.join(' · ');
 }
-/** Uses the native share sheet with the image when possible, otherwise downloads the PNG. */
-export async function shareCard(card: ShareCard): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const blob = await renderShareCard(card);
-  const name = `${card.title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'cenora'}.png`;
-  const file = new File([blob], name, { type: 'image/png' });
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: card.title, text: shareText(card) });
-      return 'shared';
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
-    }
-  }
+export const shareFileName = (card: ShareCard) =>
+  `${card.title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'cenora'}.png`;
+/** A data URL, because the page CSP allows data: images but not blob: ones. */
+export function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Não foi possível mostrar a prévia.'));
+    reader.readAsDataURL(blob);
+  });
+}
+export function downloadImage(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  return 'downloaded';
+}
+/** Puts the PNG on the clipboard so it can be pasted into the target app. */
+export async function copyImage(blob: Blob) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+const nativeFile = (blob: Blob, name: string) => new File([blob], name, { type: 'image/png' });
+export function canNativeShare(blob: Blob, name: string) {
+  return (
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [nativeFile(blob, name)] })
+  );
+}
+/** The browser share sheet, used as the fallback for apps without their own button. */
+export async function nativeShare(card: ShareCard, blob: Blob): Promise<'shared' | 'cancelled'> {
+  try {
+    await navigator.share({
+      files: [nativeFile(blob, shareFileName(card))],
+      title: card.title,
+      text: `${shareCaption(card)} — ${shareUrl}`,
+    });
+    return 'shared';
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
+    throw e;
+  }
 }

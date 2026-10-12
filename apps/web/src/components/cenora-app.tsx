@@ -78,19 +78,19 @@ const kindCopy: Record<
     empty: 'Nenhuma série por aqui ainda.',
   },
 };
-const chipsFor = (kind: Kind, mine: boolean) =>
+const chipsFor = (mine: boolean) =>
   mine
     ? [
         ['', 'Todos'],
         ['want', 'Quero ver'],
-        ...(kind === 'tv' ? [['watching', 'Assistindo']] : []),
+        ['watching', 'Assistindo'],
         ['watched', 'Vistos'],
         ['dropped', 'Abandonados'],
       ]
     : [
         ['', 'Todos'],
         ['planned', 'Na fila'],
-        ...(kind === 'tv' ? [['watching', 'Assistindo']] : []),
+        ['watching', 'Assistindo'],
         ['watched', 'Vistos'],
       ];
 function useDebounced(value: string) {
@@ -207,7 +207,7 @@ function App() {
     if (nextMedia) url.searchParams.set('media', nextMedia);
     window.history.pushState({}, '', url);
   };
-  const chips = chipsFor(kind, mine);
+  const chips = chipsFor(mine);
   const activeStatus = chips.some(([value]) => value === status) ? status : '';
   const media = useInfiniteQuery<Page, Error, InfiniteData<Page, number>, unknown[], number>({
     queryKey: ['media', kind, mine, q, activeStatus, sort],
@@ -226,11 +226,11 @@ function App() {
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
-  // What the group is watching right now, pinned above the shelf (invalidated with ['media']).
+  // What the group is watching right now, movies and shows, pinned above the shelf.
   const watchingNow = useQuery({
-    queryKey: ['media', 'watching', kind],
+    queryKey: ['media', 'watching'],
     enabled: Boolean(session.data?.member),
-    queryFn: () => api<Page>(`/media?kind=${kind}&status=watching&sort=recent`),
+    queryFn: () => api<Page>('/media?status=watching&sort=recent'),
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
@@ -505,15 +505,26 @@ function App() {
             </div>
           </div>
           {watchingItems.length > 0 && (
-            <section className="watching-now" aria-label="Rolando agora">
-              <h2>Rolando agora</h2>
-              <ul className="watching-strip" key={kind}>
+            <section className="watching-now" aria-label="Assistindo agora">
+              <header>
+                <h2>
+                  <span className="live-dot" aria-hidden="true" />
+                  Assistindo agora
+                </h2>
+                <p>
+                  {watchingItems.length === 1
+                    ? 'O grupo está no meio de 1 história.'
+                    : `O grupo está no meio de ${watchingItems.length} histórias.`}
+                </p>
+              </header>
+              <ul className="watching-strip">
                 {watchingItems.map((item, index) => (
                   <PosterCard
                     key={item.id}
                     item={item}
                     index={index}
                     mine={false}
+                    showKind
                     onOpen={() => navigate({ media: item.id })}
                   />
                 ))}
@@ -654,11 +665,13 @@ function PosterCard({
   item,
   index,
   mine,
+  showKind = false,
   onOpen,
 }: {
   item: Media;
   index: number;
   mine: boolean;
+  showKind?: boolean;
   onOpen: () => void;
 }) {
   const px = useMotionValue(0.5);
@@ -712,6 +725,11 @@ function PosterCard({
       >
         <span className="card-art">
           <Poster media={item} layoutId={`poster-${item.id}`} />
+          {showKind && (
+            <span className="kind-flag" aria-hidden="true">
+              {item.kind === 'tv' ? 'Série' : 'Filme'}
+            </span>
+          )}
           <m.span className="glare" style={{ backgroundImage: glare }} aria-hidden="true" />
           {state === 'watched' && (
             <span className="badge done" aria-hidden="true">

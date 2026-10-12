@@ -382,27 +382,55 @@ test('the roleta picks a title to open, and the title can be shared as a branded
   await expect(roleta).not.toBeVisible();
   const stage = page.locator('.stage');
   await expect(stage).toBeVisible();
+  await page.addInitScript(() => {
+    (window as any).__opened = [];
+    window.open = ((url: string) => ((window as any).__opened.push(String(url)), null)) as any;
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Compartilhar' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Compartilhar' });
+  await expect(sheet.getByRole('img', { name: /Prévia do cartão/ })).toBeVisible();
+  for (const app of ['WhatsApp', 'Instagram', 'Discord', 'X']) {
+    await expect(sheet.getByRole('button', { name: app, exact: true })).toBeVisible();
+  }
+  await sheet.getByRole('button', { name: 'X', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__opened.at(-1)))
+    .toContain('https://x.com/intent/post?text=');
+  await sheet.getByRole('button', { name: 'WhatsApp', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__opened.at(-1)))
+    .toContain('https://wa.me/?text=');
   const download = page.waitForEvent('download');
-  await stage.getByRole('button', { name: 'Compartilhar' }).click();
-  expect((await download).suggestedFilename()).toMatch(/\.png$/);
+  await sheet.getByRole('button', { name: 'Salvar imagem' }).click();
+  expect((await download).suggestedFilename()).toMatch(/.png$/);
 });
-test('titles the group is watching are pinned in a "Rolando agora" section', async ({ page }) => {
+test('titles the group is watching, movies and shows, are pinned in an "Assistindo agora" section', async ({
+  page,
+}) => {
   await page.goto('/');
   await expect(page.locator('.card')).toHaveCount(30);
-  await expect(page.getByRole('region', { name: 'Rolando agora' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Assistindo agora' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   const stage = page.getByRole('dialog', { name: 'A Origem' });
   const saved = savedAs(page, '"status":"watching"');
   await stage.getByRole('button', { name: 'Rolando', exact: true }).click();
   await saved;
   await page.keyboard.press('Escape');
-  const section = page.getByRole('region', { name: 'Rolando agora' });
+  const section = page.getByRole('region', { name: 'Assistindo agora' });
   await expect(section.getByRole('button', { name: 'Abrir A Origem', exact: true })).toBeVisible();
   await expect(page.locator('.card')).toHaveCount(30);
+  await expect(section.getByText('Filme', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: /Séries/ }).click();
-  await expect(section).toHaveCount(0);
+  await expect(section.getByRole('button', { name: 'Abrir A Origem', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Assistindo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.getByRole('tab', { name: /Filmes/ }).click();
-  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Assistindo', exact: true })).toBeVisible();
+  await section.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   const back = savedAs(page, '"status":"planned"');
   await page
     .getByRole('dialog', { name: 'A Origem' })

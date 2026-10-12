@@ -8,7 +8,6 @@ import { ExternalLink, Link2, Loader2, Pencil, Share2, X, Check } from 'lucide-r
 import { toast } from 'sonner';
 import type { CatalogResult, Media, MediaDetails } from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
-import { shareCard } from '@/lib/share-card';
 import { useTitleTracking } from './use-title-tracking';
 import { Modal, Button } from './ui';
 import { Poster } from './poster';
@@ -16,6 +15,7 @@ import { CatalogSearch } from './add-media';
 import { MovieSession } from './movie-session';
 import { ShowTracker } from './show-tracker';
 import { ManualEditor, PersonDialog } from './title-tools';
+import { ShareSheet } from './share-sheet';
 
 function SaveBadge({ saving }: { saving: boolean }) {
   const [saved, setSaved] = useState(false);
@@ -178,31 +178,27 @@ function Pending({ title, kind }: { title: string; kind?: 'movie' | 'tv' }) {
   );
 }
 function ShareButton({ data, clubName }: { data: MediaDetails; clubName: string | null }) {
-  const [busy, setBusy] = useState(false);
-  const share = async () => {
-    setBusy(true);
-    try {
-      const result = await shareCard({
-        title: data.title,
-        kind: data.kind,
-        year: data.year,
-        posterUrl: data.posterUrl,
-        clubName,
-        clubRating: data.average,
-        myRating: data.personal?.rating ?? null,
-      });
-      if (result === 'downloaded') toast.success('Imagem salva. É só compartilhar.');
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
   return (
-    <button type="button" className="text-button share-button" onClick={share} disabled={busy}>
-      {busy ? <Loader2 size={14} className="spin" /> : <Share2 size={14} />}
-      Compartilhar
-    </button>
+    <>
+      <button type="button" className="text-button share-button" onClick={() => setOpen(true)}>
+        <Share2 size={14} />
+        Compartilhar
+      </button>
+      <ShareSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        card={{
+          title: data.title,
+          kind: data.kind,
+          year: data.year,
+          posterUrl: data.posterUrl,
+          clubName,
+          clubRating: data.average,
+          myRating: data.personal?.rating ?? null,
+        }}
+      />
+    </>
   );
 }
 function Loaded({
