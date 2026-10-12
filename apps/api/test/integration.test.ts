@@ -938,7 +938,7 @@ describe('email access on the same runtime', () => {
       .first()) as any;
     expect(cappedRow.expires_at).toBe(now + 86400);
   });
-  it('keeps profile sessions alive without a hard cap', async () => {
+  it('keeps profile and guest sessions alive without a hard cap', async () => {
     const clubId = ((await db.prepare('SELECT id FROM clubs LIMIT 1').first()) as any).id;
     const memberId = crypto.randomUUID();
     const token = 'perfil-antigo-token-123456';
@@ -963,6 +963,20 @@ describe('email access on the same runtime', () => {
       .bind(digest(token))
       .first()) as any;
     expect(row.expires_at).toBeGreaterThan(now + 20 * 86400);
+    // Identidade de convidado (sem e-mail) também não expira por teto.
+    const guestToken = ownerCookie.split('=')[1];
+    await db
+      .prepare('UPDATE sessions SET created_at=?, expires_at=? WHERE token_hash=?')
+      .bind(now - 400 * 86400, now + 86400, digest(guestToken))
+      .run();
+    const guest = await request('/club/lists');
+    expect(guest.status).toBe(200);
+    expect(guest.headers.get('set-cookie')).toBeTruthy();
+    const guestRow = (await db
+      .prepare('SELECT expires_at FROM sessions WHERE token_hash=?')
+      .bind(digest(guestToken))
+      .first()) as any;
+    expect(guestRow.expires_at).toBeGreaterThan(now + 20 * 86400);
   });
   it('switches between clubs and signs out of every device', async () => {
     const account = await loginByEmail('gabi@example.com');
@@ -1142,6 +1156,13 @@ describe('guest identities on the same runtime', () => {
     );
     expect(verified.status).toBe(200);
     expect(((await verified.json()) as any).user.email).toBe('ana@example.com');
+    // Anexar o e-mail reinicia o relógio do teto de 12 meses.
+    const attached = (await db
+      .prepare('SELECT created_at,scope_member_id FROM sessions WHERE member_id=?')
+      .bind(ana.member.id)
+      .first()) as any;
+    expect(attached.created_at).toBeGreaterThan(Math.floor(Date.now() / 1000) - 60);
+    expect(attached.scope_member_id).toBeNull();
     await db.prepare('DELETE FROM auth_attempts').run();
     const fresh = await loginByEmail('ana@example.com');
     expect(fresh.user.email).toBe('ana@example.com');

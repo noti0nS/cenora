@@ -512,3 +512,28 @@ test('an owner claim code opens a scoped session with a clear notice', async ({
     await context.close();
   }
 });
+
+test('a guest profile links an email from settings', async ({ browser }) => {
+  const email = 'gina@cenora.test';
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto('http://127.0.0.1:8788');
+    await page.getByRole('button', { name: 'Criar meu clube' }).click();
+    await page.getByLabel('Como podemos chamar você?').fill('Gina');
+    await page.getByRole('button', { name: 'Criar meu clube' }).click();
+    await page.getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' }).check();
+    await page.getByRole('button', { name: 'Ir para a Cenora' }).click();
+    await expect(page.getByRole('tab', { name: /Filmes/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Perfil de Gina' }).click();
+    await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
+    await page.getByRole('button', { name: 'Vincular um e-mail' }).click();
+    await page.getByLabel('Seu e-mail').fill(email);
+    await page.getByRole('button', { name: 'Enviar código' }).click();
+    await page.getByLabel('Código de 6 dígitos').fill(await outboxCodeFor(email));
+    await page.getByRole('button', { name: 'Vincular e-mail' }).click();
+    await expect(page.getByText(`Conta: ${email}`)).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});

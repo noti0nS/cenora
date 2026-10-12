@@ -11,6 +11,7 @@ export interface Env {
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
   TURNSTILE_SECRET?: string;
+  RL_AUTH?: { limit: (options: { key: string }) => Promise<{ success: boolean }> };
 }
 export type AppEnv = {
   Bindings: Env;
@@ -86,6 +87,10 @@ export async function hit(
   const now = Math.floor(Date.now() / 1000),
     slot = Math.floor(now / windowSeconds);
   const bucket = await hash(`${key}:${slot}`);
+  if (c.env.RL_AUTH && windowSeconds >= 60) {
+    const outcome = await c.env.RL_AUTH.limit({ key: bucket });
+    if (!outcome?.success) throw new ApiError(429, 'RATE_LIMIT', message);
+  }
   const row = await c.env.DB.prepare(
     'INSERT INTO auth_attempts (key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count',
   )

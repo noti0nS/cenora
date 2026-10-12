@@ -196,7 +196,7 @@ export async function resolveSession(
     }
   }
   if (row.expires_at - now < SESSION_RENEW_AFTER) {
-    const capped = Boolean(user) && row.created_at + ACCOUNT_MAX_AGE <= now;
+    const capped = Boolean(user?.email) && row.created_at + ACCOUNT_MAX_AGE <= now;
     if (!capped) {
       await c.env.DB.prepare('UPDATE sessions SET expires_at=?,renewed_at=? WHERE token_hash=?')
         .bind(now + SESSION_LIFETIME, now, digest)
@@ -442,9 +442,9 @@ auth.post('/email/verify', async (c) => {
       c.env.DB.prepare(
         'UPDATE users SET email=?,normalized_email=?,last_login_at=? WHERE id=?',
       ).bind(input.email, input.email, now, session.user.id),
-      c.env.DB.prepare('UPDATE sessions SET scope_member_id=NULL WHERE token_hash=?').bind(
-        c.get('sessionHash'),
-      ),
+      c.env.DB.prepare(
+        'UPDATE sessions SET created_at=?,scope_member_id=NULL WHERE token_hash=?',
+      ).bind(now, c.get('sessionHash')),
     ]);
     await clear();
     const options = await memberships(c, session.user.id);

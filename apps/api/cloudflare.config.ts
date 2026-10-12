@@ -23,6 +23,16 @@ export default defineConfig(({ mode }) => ({
       }),
       ASSETS: bindings.assets(),
       ENVIRONMENT: bindings.text(mode === 'development' ? 'development' : 'production'),
+      // Camada extra de rate limit por localidade. Fica fora do desenvolvimento
+      // porque os testes e o dev local rodam em Miniflare, que não simula o binding.
+      ...(mode === 'development'
+        ? {}
+        : {
+            RL_AUTH: bindings.rateLimit({
+              namespace: '1001',
+              simple: { limit: 30, period: 60 },
+            }),
+          }),
       // Optional catalog credentials are uploaded with cf deploy --secrets-file.
       // Declaring them here would require keys even for manual-only clubs.
     },
