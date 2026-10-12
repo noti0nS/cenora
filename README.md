@@ -95,6 +95,15 @@ The deployment dry run needs no Cloudflare credentials and does not publish the 
 
 ## Deploy with Cloudflare `cf`
 
+Production is configured for the `cenora` Worker and D1 database
+`d2c212f4-8d89-4f78-b72e-f0a0befa6a74`. After Cloudflare authentication, run
+`pnpm deploy` to publish updates. `D1_DATABASE_ID` can override the configured
+production database; staging still requires its own explicit database ID.
+For future production migrations, set `$env:D1_DATABASE_ID =
+'d2c212f4-8d89-4f78-b72e-f0a0befa6a74'` and run `pnpm db:migrate --remote` before
+deploying. Catalog credentials are optional and were not configured for the
+initial publication.
+
 All commands use the installed `cf` CLI. Its documented non-Vite builder internally delegates to Wrangler, configured by `wrangler.config.ts`; there are no direct Wrangler CLI scripts. `cf init` detected Hono but could not auto-configure this workspace, so the typed Worker configuration is supplied explicitly.
 
 Start with staging and a **separate D1 database**:
