@@ -1323,3 +1323,78 @@ h3,
 .orb.mine small {
   color: var(--accent-text);
 }
+
+.share-modal {
+  max-width: 420px;
+}
+.share-sheet {
+  display: grid;
+  gap: 22px;
+}
+.share-preview {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+.share-preview img {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  box-shadow: 0 24px 50px #0006;
+}
+.share-loading {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.share-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 16px 6px;
+}
+.share-target {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.share-target:hover,
+.share-target:focus-visible {
+  color: var(--ink);
+}
+.share-orb {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  color: #fff;
+  transition: transform 0.18s;
+}
+.share-target:hover .share-orb {
+  transform: translateY(-3px) scale(1.05);
+}
+.share-orb.whatsapp {
+  background: #25d366;
+}
+.share-orb.instagram {
+  background: linear-gradient(45deg, #feda75, #fa7e1e 28%, #d62976 55%, #962fbf 78%, #4f5bd5);
+}
+.share-orb.neutral {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
