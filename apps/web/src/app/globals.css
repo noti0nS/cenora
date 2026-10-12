@@ -1455,6 +1455,11 @@ summary {
   display: flex;
   justify-content: center;
 }
+.turnstile-status {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 8px 0;
+}
 .menu-club {
   display: inline-flex;
   align-items: center;

@@ -7,6 +7,7 @@ import type { Club, ClubOption, Member, SessionState } from '@cenora/shared';
 import { api, json, errorMessage, RequestError } from '@/lib/api';
 import { Modal, Button, Field, copyCode, Segmented } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
+import { TurnstileField } from './turnstile-field';
 
 function AttachEmail({ onLinked }: { onLinked: () => void }) {
   const [step, setStep] = useState<'email' | 'code'>('email');
@@ -18,6 +19,7 @@ function AttachEmail({ onLinked }: { onLinked: () => void }) {
   const turnstile = useTurnstile(step === 'email');
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy || (turnstile.active && !turnstile.token)) return;
     setBusy(true);
     setError('');
     setMergeOffer(false);
@@ -70,7 +72,7 @@ function AttachEmail({ onLinked }: { onLinked: () => void }) {
           onChange={(e) => setEmail(e.target.value)}
         />
       </Field>
-      <div className="turnstile-slot" ref={turnstile.container} />
+      <TurnstileField turnstile={turnstile} />
       {error && (
         <p role="alert" className="error-note">
           {error}

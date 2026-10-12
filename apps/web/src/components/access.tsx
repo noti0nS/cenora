@@ -26,6 +26,7 @@ import {
 import { api, json, errorMessage } from '@/lib/api';
 import { Button, Field, copyCode } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
+import { TurnstileField } from './turnstile-field';
 import { Wordmark } from './brand';
 
 const schema = z.object({
@@ -389,6 +390,7 @@ function Door({
     form.setValue('name', localStorage.getItem('watchlist:name') || '');
   }, [form]);
   const sendCode = useCallback(async () => {
+    if (busy || (turnstile.active && !turnstile.token)) return;
     setBusy(true);
     setError('');
     try {
@@ -405,7 +407,7 @@ function Door({
     } finally {
       setBusy(false);
     }
-  }, [email, turnstile]);
+  }, [busy, email, turnstile]);
   const verify = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -507,7 +509,7 @@ function Door({
                 ? 'Entre com seu e-mail e receba um código. Sem senha, sem complicação.'
                 : `Enviamos um código para ${email}.`}
             </p>
-            <div className="turnstile-slot" ref={turnstile.container} />
+            <TurnstileField turnstile={turnstile} />
             {step === 'email' ? (
               <form
                 onSubmit={(e) => {
