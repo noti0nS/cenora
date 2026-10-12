@@ -156,6 +156,11 @@ Create the ignored `.secrets.staging.json` locally, using your actual credential
 
 `AUTH_PEPPER` is required for the email door; without it those endpoints answer 503. The Turnstile pair is optional: set `TURNSTILE_SECRET` here and `$env:NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'the_public_site_key'` before `pnpm --filter @cenora/web build` to show the widget. Verify the sending domain (Resend: DKIM and SPF records for `cenora.club`, DMARC starting at `p=none`) before relying on real emails.
 
+Two operational details learned on the live deploy:
+
+- `cf deploy --secrets-file` updates only the secrets listed in the file; secrets already on the Worker (for example `TMDB_TOKEN`, `OMDB_KEY`) are preserved. The deploy summary prints just the bindings from the current configuration, so confirm the full set with `cf workers secrets list --worker cenora`.
+- The Turnstile pair must always match: with `TURNSTILE_SECRET` on the Worker, `/api/auth/email/start` and `/api/auth/email/verify` reject requests without a valid token, so the web export must be built with `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. The `Publish` workflow carries the public key, and `.env.local` covers local builds. A plain `curl` smoke only works while the secret is unset; after that, test the door from the browser.
+
 Open the returned `workers.dev` address and create a club directly in the interface. Check creation, joining, recovery, cross-club privacy, the email door (read the code in the local outbox only in development; in staging ask for a real address), catalog search, progress, and imports before production.
 
 For production, create `cenora`, set `D1_DATABASE_ID` to its different UUID, run migrations with `--remote` and without `--staging`, then deploy without `--mode staging`. Use a separate production secrets file with the same keys as staging. Environment variables are inherited from your shell; the root `.env.example` is a reference rather than an automatically loaded file.
