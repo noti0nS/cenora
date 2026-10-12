@@ -153,3 +153,16 @@ A daily scheduled task prunes expired sessions, old authentication attempts, and
 - `tests`: end-to-end browser flows.
 
 The gallery deliberately keeps dashboards, voting, scheduling, comments, and extra navigation out of the first release.
+
+### GitHub publishing
+
+The `Publish` workflow validates pull requests and publishes `main` to the production
+Cloudflare Worker after formatting, type checks, API tests, browser tests, and the
+deployment dry run pass. It applies pending production D1 migrations before deploying.
+You can also run it manually from GitHub Actions. Production runs are serialized.
+
+Configure the repository secret `CLOUDFLARE_API_TOKEN` with Workers Scripts Edit,
+Workers Tail Read, D1 Edit, and Account Settings Read permissions for the configured
+Cloudflare account. The workflow uses the pinned `cf` CLI and pnpm version.
+Optional catalog credentials remain managed through the production secrets file;
+do not commit them or put them in frontend environment variables.
