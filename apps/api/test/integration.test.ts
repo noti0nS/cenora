@@ -335,6 +335,11 @@ describe('private club on a real Worker + D1 runtime', () => {
         .map((s) => s.trim())
         .filter(Boolean);
       await previous.batch(accounts.map((s) => previous.prepare(s)));
+      const claims = (await readFile('migrations/0006_member_claims.sql', 'utf8'))
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await previous.batch(claims.map((s) => previous.prepare(s)));
       const session = await legacy.dispatchFetch('http://localhost/api/auth/session', {
         headers: { Cookie: 'watchlist_session=' + oldSession },
       });
@@ -1224,5 +1229,310 @@ describe('guest identities on the same runtime', () => {
       (await request('/auth/recover', 'POST', { token: ana.clubToken, recoveryCode: fresh }, ''))
         .status,
     ).toBe(200);
+  });
+});
+describe('scoped re-access and identity linking', () => {
+  it('grants the owner claim code as a session locked to one club', async () => {
+    const ana = await createClub('Ana');
+    const beto = await createClub('Beto');
+    const joined = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Ana', token: beto.clubToken },
+      ana.cookie,
+    );
+    const anaInBeto = ((await joined.json()) as any).member.id;
+    const issued = await request(
+      '/club/members/' + anaInBeto + '/claim',
+      'POST',
+      undefined,
+      beto.cookie,
+    );
+    expect(issued.status).toBe(200);
+    const claim = ((await issued.json()) as any).claimCode;
+    const claimed = await request('/auth/claim', 'POST', { code: claim }, '');
+    expect(claimed.status).toBe(200);
+    const claimedData = (await claimed.json()) as any;
+    expect(claimedData.scoped).toBe(true);
+    expect(claimedData.member.id).toBe(anaInBeto);
+    const cookie = claimed.headers.get('set-cookie')!.split(';')[0];
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, cookie)
+    ).json()) as any;
+    expect(session.scoped).toBe(true);
+    expect(session.clubs.map((option: any) => option.memberId)).toEqual([anaInBeto]);
+    expect((await request('/auth/club', 'POST', { memberId: ana.member.id }, cookie)).status).toBe(
+      403,
+    );
+    expect((await request('/auth/recovery-code', 'POST', undefined, cookie)).status).toBe(403);
+    expect((await request('/auth/logout-all', 'POST', undefined, cookie)).status).toBe(403);
+    await request(
+      '/auth/email/start',
+      'POST',
+      { email: 'ana.claim@example.com', mode: 'attach' },
+      cookie,
+    );
+    const attached = await request(
+      '/auth/email/verify',
+      'POST',
+      {
+        email: 'ana.claim@example.com',
+        code: await outboxCode('ana.claim@example.com'),
+        mode: 'attach',
+      },
+      cookie,
+    );
+    expect(attached.status).toBe(200);
+    const unlocked = (await (
+      await request('/auth/session', 'GET', undefined, cookie)
+    ).json()) as any;
+    expect(unlocked.scoped).toBe(false);
+    expect(unlocked.clubs).toHaveLength(2);
+    expect((await request('/auth/claim', 'POST', { code: claim }, '')).status).toBe(401);
+  });
+  it('issues single-use claim codes, only for the owner, and invalidates the previous one', async () => {
+    const ana = await join('Ana');
+    const first = await request('/club/members/' + ana.member.id + '/claim', 'POST');
+    expect(first.status).toBe(200);
+    const firstCode = ((await first.json()) as any).claimCode;
+    const again = await request('/club/members/' + ana.member.id + '/claim', 'POST');
+    const againCode = ((await again.json()) as any).claimCode;
+    expect((await request('/auth/claim', 'POST', { code: firstCode }, '')).status).toBe(401);
+    await db
+      .prepare('UPDATE member_claims SET expires_at=0 WHERE member_id=?')
+      .bind(ana.member.id)
+      .run();
+    expect((await request('/auth/claim', 'POST', { code: againCode }, '')).status).toBe(401);
+    const other = await createClub('Outro');
+    expect(
+      (await request('/club/members/' + ana.member.id + '/claim', 'POST', undefined, other.cookie))
+        .status,
+    ).toBe(404);
+    expect(
+      (await request('/club/members/' + ana.member.id + '/claim', 'POST', undefined, ana.cookie))
+        .status,
+    ).toBe(403);
+    expect(
+      (await request('/club/members/' + ana.member.id + '/claim', 'POST', undefined, '')).status,
+    ).toBe(401);
+  });
+  it('adopts an old profile into an account and keeps its recovery code useful', async () => {
+    const clubId = (
+      (await db.prepare('SELECT id FROM clubs ORDER BY rowid LIMIT 1').first()) as any
+    ).id;
+    const account = await loginByEmail('lia@example.com');
+    const legacyId = crypto.randomUUID();
+    await db
+      .prepare(
+        "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'member')",
+      )
+      .bind(legacyId, clubId, 'Lia antiga', 'lia antiga', digest('codigo-da-lia-123456'))
+      .run();
+    const linked = await request(
+      '/auth/link',
+      'POST',
+      { name: 'Lia antiga', token: clubToken, recoveryCode: 'codigo-da-lia-123456' },
+      account.cookie,
+    );
+    expect(linked.status).toBe(200);
+    const linkedData = (await linked.json()) as any;
+    expect(linkedData.member.id).toBe(legacyId);
+    expect(linkedData.club.id).toBe(clubId);
+    const profile = (await db
+      .prepare('SELECT user_id FROM members WHERE id=?')
+      .bind(legacyId)
+      .first()) as any;
+    expect(profile.user_id).toBe(account.user.id);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(session.member.id).toBe(legacyId);
+    expect(session.clubs).toHaveLength(1);
+    const recovered = await request(
+      '/auth/recover',
+      'POST',
+      { name: 'Lia antiga', token: clubToken, recoveryCode: 'codigo-da-lia-123456' },
+      '',
+    );
+    expect(recovered.status).toBe(200);
+    expect(((await recovered.json()) as any).user.id).toBe(account.user.id);
+  });
+  it('refuses adoption when the account already has a profile in the club or the profile is taken', async () => {
+    const clubId = (
+      (await db.prepare('SELECT id FROM clubs ORDER BY rowid LIMIT 1').first()) as any
+    ).id;
+    const account = await loginByEmail('lia2@example.com');
+    const joined = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Lia nova', token: clubToken },
+      account.cookie,
+    );
+    expect(joined.status).toBe(201);
+    const legacyId = crypto.randomUUID();
+    await db
+      .prepare(
+        "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role) VALUES (?,?,?,?,?,'member')",
+      )
+      .bind(legacyId, clubId, 'Lia antiga', 'lia antiga', digest('codigo-da-lia-123456'))
+      .run();
+    const conflict = await request(
+      '/auth/link',
+      'POST',
+      { name: 'Lia antiga', token: clubToken, recoveryCode: 'codigo-da-lia-123456' },
+      account.cookie,
+    );
+    expect(conflict.status).toBe(409);
+    expect(((await conflict.json()) as any).error.code).toBe('MERGE_CONFLICT');
+    const ana = await join('Ana');
+    await db
+      .prepare('UPDATE members SET recovery_hash=? WHERE id=?')
+      .bind(digest('codigo-de-outra-123456'), ana.member.id)
+      .run();
+    const linkedElsewhere = await request(
+      '/auth/link',
+      'POST',
+      { name: 'Ana', token: clubToken, recoveryCode: 'codigo-de-outra-123456' },
+      account.cookie,
+    );
+    expect(linkedElsewhere.status).toBe(409);
+    expect(((await linkedElsewhere.json()) as any).error.code).toBe('LINKED');
+  });
+  it('fuses a guest identity into an account, moving clubs and sessions', async () => {
+    const ana = await createClub('Ana');
+    const beto = await createClub('Beto');
+    await request('/auth/join', 'POST', { name: 'Ana', token: beto.clubToken }, ana.cookie);
+    const source = (await db
+      .prepare('SELECT id FROM users WHERE recovery_hash=?')
+      .bind(digest(ana.recoveryCode))
+      .first()) as any;
+    const account = await loginByEmail('conta@example.com');
+    const fused = await request(
+      '/auth/link',
+      'POST',
+      { recoveryCode: ana.recoveryCode },
+      account.cookie,
+    );
+    expect(fused.status).toBe(200);
+    expect(((await fused.json()) as any).clubs).toHaveLength(2);
+    expect(
+      (
+        (await db
+          .prepare('SELECT COUNT(*) count FROM members WHERE user_id=?')
+          .bind(account.user.id)
+          .first()) as any
+      ).count,
+    ).toBe(2);
+    expect(
+      (
+        (await db
+          .prepare('SELECT COUNT(*) count FROM users WHERE id=?')
+          .bind(source.id)
+          .first()) as any
+      ).count,
+    ).toBe(0);
+    const migrated = (await db
+      .prepare('SELECT COUNT(*) count FROM sessions WHERE user_id=?')
+      .bind(account.user.id)
+      .first()) as any;
+    expect(migrated.count).toBeGreaterThan(0);
+    const orphan = (await db
+      .prepare('SELECT COUNT(*) count FROM sessions WHERE user_id=?')
+      .bind(source.id)
+      .first()) as any;
+    expect(orphan.count).toBe(0);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, ana.cookie)
+    ).json()) as any;
+    expect(session.user.id).toBe(account.user.id);
+  });
+  it('refuses fusion on conflicting clubs or identities that already use email', async () => {
+    const ana = await createClub('Ana');
+    const beto = await createClub('Beto');
+    const account = await loginByEmail('conta2@example.com');
+    await request('/auth/join', 'POST', { name: 'Conta', token: beto.clubToken }, account.cookie);
+    await request('/auth/join', 'POST', { name: 'Ana', token: beto.clubToken }, ana.cookie);
+    const conflict = await request(
+      '/auth/link',
+      'POST',
+      { recoveryCode: ana.recoveryCode },
+      account.cookie,
+    );
+    expect(conflict.status).toBe(409);
+    expect(((await conflict.json()) as any).error.code).toBe('MERGE_CONFLICT');
+    expect(
+      (
+        (await db
+          .prepare('SELECT COUNT(*) count FROM members WHERE user_id=?')
+          .bind(account.user.id)
+          .first()) as any
+      ).count,
+    ).toBe(1);
+    const gina = await createClub('Gina');
+    await request(
+      '/auth/email/start',
+      'POST',
+      { email: 'gina@example.com', mode: 'attach' },
+      gina.cookie,
+    );
+    const attached = await request(
+      '/auth/email/verify',
+      'POST',
+      { email: 'gina@example.com', code: await outboxCode('gina@example.com'), mode: 'attach' },
+      gina.cookie,
+    );
+    expect(attached.status).toBe(200);
+    const refused = await request(
+      '/auth/link',
+      'POST',
+      { recoveryCode: gina.recoveryCode },
+      account.cookie,
+    );
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as any).error.code).toBe('LINKED');
+  });
+  it('merges the current guest identity into an existing account when attaching its email', async () => {
+    const ana = await createClub('Ana');
+    const source = (await db
+      .prepare('SELECT id FROM users WHERE recovery_hash=?')
+      .bind(digest(ana.recoveryCode))
+      .first()) as any;
+    const account = await loginByEmail('merge@example.com');
+    await db.prepare('DELETE FROM auth_attempts').run();
+    const started = await request(
+      '/auth/email/start',
+      'POST',
+      { email: 'merge@example.com', mode: 'attach' },
+      ana.cookie,
+    );
+    expect(started.status).toBe(200);
+    const merged = await request(
+      '/auth/email/verify',
+      'POST',
+      {
+        email: 'merge@example.com',
+        code: await outboxCode('merge@example.com'),
+        mode: 'attach',
+        merge: true,
+      },
+      ana.cookie,
+    );
+    expect(merged.status).toBe(200);
+    const data = (await merged.json()) as any;
+    expect(data.user.id).toBe(account.user.id);
+    expect(data.clubs).toHaveLength(1);
+    expect(
+      (
+        (await db
+          .prepare('SELECT COUNT(*) count FROM users WHERE id=?')
+          .bind(source.id)
+          .first()) as any
+      ).count,
+    ).toBe(0);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, ana.cookie)
+    ).json()) as any;
+    expect(session.user.id).toBe(account.user.id);
+    expect(session.clubs).toHaveLength(1);
   });
 });

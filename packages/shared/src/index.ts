@@ -35,6 +35,15 @@ export const emailVerifySchema = z.object({
   email: emailSchema,
   code: emailCodeSchema,
   mode: z.enum(['login', 'attach']).default('login'),
+  merge: z.boolean().default(false),
+});
+export const claimSchema = z.object({
+  code: z.string().trim().min(12).max(128),
+});
+export const linkSchema = z.object({
+  recoveryCode: z.string().trim().min(12).max(128),
+  name: displayName.optional(),
+  token: z.string().trim().min(12).max(128).optional(),
 });
 export const identitySchema = z.object({
   name: displayName,

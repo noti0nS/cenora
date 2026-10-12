@@ -7,6 +7,8 @@ import {
   createClubSchema,
   emailStartSchema,
   emailVerifySchema,
+  claimSchema,
+  linkSchema,
   normalizeName,
   type Member,
   type Club,
@@ -118,6 +120,36 @@ async function activate(
   ]);
 }
 
+function requireUnscoped(session: ResolvedSession | null) {
+  if (session?.scopedMemberId)
+    throw new ApiError(
+      403,
+      'SCOPED',
+      'Este acesso está limitado a um clube. Use seu código de recuperação ou vincule um e-mail para liberar os outros.',
+    );
+}
+
+async function mergeIdentities(c: Context<AppEnv>, sourceId: string, targetId: string) {
+  const conflicts = await c.env.DB.prepare(
+    'SELECT c.name FROM members s JOIN clubs c ON c.id=s.club_id WHERE s.user_id=? AND s.club_id IN (SELECT club_id FROM members WHERE user_id=?)',
+  )
+    .bind(sourceId, targetId)
+    .all<{ name: string }>();
+  if (conflicts.results.length)
+    throw new ApiError(
+      409,
+      'MERGE_CONFLICT',
+      `Você já tem perfil nestes clubes com as duas identidades: ${conflicts.results
+        .map((row) => row.name)
+        .join(', ')}. Peça para o dono remover um dos perfis e tente de novo.`,
+    );
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE members SET user_id=? WHERE user_id=?').bind(targetId, sourceId),
+    c.env.DB.prepare('UPDATE sessions SET user_id=? WHERE user_id=?').bind(targetId, sourceId),
+    c.env.DB.prepare('DELETE FROM users WHERE id=?').bind(sourceId),
+  ]);
+}
+
 export async function resolveSession(
   c: Context<AppEnv>,
   withClubs = false,
@@ -196,6 +228,7 @@ export async function issueSession(
   c: Context<AppEnv>,
   memberId: string | null,
   userId: string | null,
+  scopeMemberId: string | null = null,
 ) {
   let clubVersion: number | null = null;
   if (memberId) {
@@ -210,13 +243,14 @@ export async function issueSession(
   const value = token();
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(
-    'INSERT INTO sessions (token_hash,user_id,member_id,club_version,scope_member_id,created_at,expires_at,renewed_at,user_agent) VALUES (?,?,?,?,NULL,?,?,NULL,?)',
+    'INSERT INTO sessions (token_hash,user_id,member_id,club_version,scope_member_id,created_at,expires_at,renewed_at,user_agent) VALUES (?,?,?,?,?,?,?,NULL,?)',
   )
     .bind(
       await hash(value),
       userId,
       memberId,
       clubVersion,
+      scopeMemberId,
       now,
       now + SESSION_LIFETIME,
       c.req.header('User-Agent')?.slice(0, 200) || null,
@@ -387,14 +421,30 @@ auth.post('/email/verify', async (c) => {
       throw new ApiError(401, 'UNAUTHORIZED', 'Entre na sua conta para vincular o e-mail.');
     if (session.user.email)
       throw new ApiError(409, 'ALREADY_LINKED', 'Sua conta já tem um e-mail vinculado.');
-    const taken = await c.env.DB.prepare('SELECT id FROM users WHERE normalized_email=? AND id<>?')
-      .bind(input.email, session.user.id)
-      .first();
-    if (taken)
-      throw new ApiError(409, 'EMAIL_TAKEN', 'Este e-mail já está vinculado a outra conta.');
-    await c.env.DB.prepare('UPDATE users SET email=?,normalized_email=?,last_login_at=? WHERE id=?')
-      .bind(input.email, input.email, now, session.user.id)
-      .run();
+    const owner = await c.env.DB.prepare('SELECT id,email FROM users WHERE normalized_email=?')
+      .bind(input.email)
+      .first<{ id: string; email: string | null }>();
+    if (owner && owner.id !== session.user.id) {
+      if (!input.merge)
+        throw new ApiError(409, 'EMAIL_TAKEN', 'Este e-mail já está vinculado a outra conta.');
+      requireUnscoped(session);
+      await mergeIdentities(c, session.user.id, owner.id);
+      const options = await memberships(c, owner.id);
+      return c.json({
+        user: owner,
+        member: session.member,
+        club: session.club,
+        clubs: options.map(toClubOption),
+      });
+    }
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        'UPDATE users SET email=?,normalized_email=?,last_login_at=? WHERE id=?',
+      ).bind(input.email, input.email, now, session.user.id),
+      c.env.DB.prepare('UPDATE sessions SET scope_member_id=NULL WHERE token_hash=?').bind(
+        c.get('sessionHash'),
+      ),
+    ]);
     const options = await memberships(c, session.user.id);
     return c.json({
       user: { id: session.user.id, email: input.email },
@@ -467,6 +517,7 @@ auth.post('/create', async (c) => {
   await rateLimit(c);
   const input = await body(c, createClubSchema);
   const session = await resolveSession(c);
+  requireUnscoped(session);
   const userId = session?.user?.id ?? id();
   const club: Club = { id: id(), name: 'Clube de ' + input.name };
   const member: Member = { id: id(), name: input.name, role: 'owner' };
@@ -528,6 +579,7 @@ auth.post('/join', async (c) => {
   const input = await body(c, identitySchema);
   const club = await findClub(c, input.token);
   const session = await resolveSession(c);
+  requireUnscoped(session);
   const nameTaken = async () =>
     Boolean(
       await c.env.DB.prepare('SELECT id FROM members WHERE club_id=? AND normalized_name=?')
@@ -663,6 +715,107 @@ auth.post('/recover', async (c) => {
   return c.json({ user: null, member: profile, club: { id: club.id, name: club.name } });
 });
 
+auth.post('/claim', async (c) => {
+  await rateLimit(c);
+  const input = await body(c, claimSchema);
+  const now = Math.floor(Date.now() / 1000);
+  const claim = await c.env.DB.prepare(
+    'SELECT id,member_id FROM member_claims WHERE code_hash=? AND used_at IS NULL AND expires_at>?',
+  )
+    .bind(await hash(input.code), now)
+    .first<{ id: string; member_id: string }>();
+  if (!claim)
+    throw new ApiError(401, 'INVALID_CLAIM', 'Este código de reacesso não é válido ou expirou.');
+  const member = await c.env.DB.prepare(
+    'SELECT m.id member_id,m.name member_name,m.role,m.active,m.user_id,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=?',
+  )
+    .bind(claim.member_id)
+    .first<MembershipRow & { active: number; user_id: string | null }>();
+  if (!member || member.active !== 1)
+    throw new ApiError(401, 'INVALID_CLAIM', 'Este código de reacesso não é válido ou expirou.');
+  await c.env.DB.prepare('UPDATE member_claims SET used_at=? WHERE id=?').bind(now, claim.id).run();
+  const user = member.user_id
+    ? await c.env.DB.prepare('SELECT id,email FROM users WHERE id=?')
+        .bind(member.user_id)
+        .first<{ id: string; email: string | null }>()
+    : null;
+  await issueSession(c, member.member_id, user?.id ?? null, user ? member.member_id : null);
+  return c.json({
+    user: user ?? null,
+    member: toMember(member),
+    club: toClub(member),
+    scoped: Boolean(user),
+  });
+});
+
+auth.post('/link', async (c) => {
+  await rateLimit(c);
+  const session = await resolveSession(c);
+  if (!session?.user) throw new ApiError(401, 'UNAUTHORIZED', 'Entre para vincular.');
+  requireUnscoped(session);
+  const input = await body(c, linkSchema);
+  const digest = await hash(input.recoveryCode);
+  if (input.token) {
+    if (!input.name) throw new ApiError(400, 'VALIDATION', 'Informe o nome do perfil antigo.');
+    const club = await findClub(c, input.token);
+    const member = await c.env.DB.prepare(
+      'SELECT id,name,role,user_id FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
+    )
+      .bind(club.id, normalizeName(input.name), digest)
+      .first<{ id: string; name: string; role: 'owner' | 'member'; user_id: string | null }>();
+    if (!member)
+      throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código deste perfil.');
+    const membership: MembershipRow = {
+      member_id: member.id,
+      member_name: member.name,
+      role: member.role,
+      club_id: club.id,
+      club_name: club.name,
+      token_version: club.token_version,
+    };
+    if (!member.user_id) {
+      const taken = await c.env.DB.prepare(
+        'SELECT id FROM members WHERE club_id=? AND user_id=? AND active=1',
+      )
+        .bind(club.id, session.user.id)
+        .first();
+      if (taken)
+        throw new ApiError(
+          409,
+          'MERGE_CONFLICT',
+          'Sua conta já tem um perfil neste clube. Peça ao dono para remover um dos perfis.',
+        );
+      await c.env.DB.prepare('UPDATE members SET user_id=? WHERE id=?')
+        .bind(session.user.id, member.id)
+        .run();
+    } else if (member.user_id !== session.user.id) {
+      throw new ApiError(409, 'LINKED', 'Este perfil já está em outra conta.');
+    }
+    await activate(c, c.get('sessionHash'), session.user.id, membership);
+    return c.json({ user: session.user, member: toMember(membership), club: toClub(membership) });
+  }
+  const source = await c.env.DB.prepare('SELECT id,email FROM users WHERE recovery_hash=?')
+    .bind(digest)
+    .first<{ id: string; email: string | null }>();
+  if (!source) throw new ApiError(401, 'INVALID_RECOVERY', 'Código de recuperação inválido.');
+  if (source.id === session.user.id)
+    throw new ApiError(409, 'LINKED', 'Este código é da identidade que você já está usando.');
+  if (source.email)
+    throw new ApiError(
+      409,
+      'LINKED',
+      'Esta identidade já usa e-mail; fusão de contas não é suportada.',
+    );
+  await mergeIdentities(c, source.id, session.user.id);
+  const options = await memberships(c, session.user.id);
+  return c.json({
+    user: session.user,
+    member: session.member,
+    club: session.club,
+    clubs: options.map(toClubOption),
+  });
+});
+
 auth.post('/logout', async (c) => {
   const raw = getCookie(c, 'watchlist_session');
   if (raw)
@@ -676,6 +829,7 @@ auth.post('/logout', async (c) => {
 auth.post('/logout-all', async (c) => {
   const session = await resolveSession(c);
   if (!session?.user) throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
+  requireUnscoped(session);
   await c.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(session.user.id).run();
   deleteCookie(c, 'watchlist_session', { path: '/' });
   return c.json({ ok: true });
@@ -700,6 +854,7 @@ auth.patch('/profile', async (c) => {
 auth.post('/recovery-code', async (c) => {
   const session = await resolveSession(c);
   if (!session?.member) throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
+  requireUnscoped(session);
   const code = token();
   if (session.user) {
     await c.env.DB.batch([

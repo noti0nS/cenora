@@ -116,7 +116,7 @@ clubRoutes.get('/members', async (c) => {
   return c.json(
     (
       await c.env.DB.prepare(
-        'SELECT id,name,role,active FROM members WHERE club_id=? ORDER BY role DESC,name',
+        'SELECT id,name,role,active,(user_id IS NOT NULL) linked FROM members WHERE club_id=? ORDER BY role DESC,name',
       )
         .bind(c.get('club').id)
         .all()
@@ -170,6 +170,25 @@ clubRoutes.post('/members/:id/recovery', async (c) => {
     ),
   ]);
   return c.json({ recoveryCode: code });
+});
+
+clubRoutes.post('/members/:id/claim', async (c) => {
+  owner(c);
+  const member = await c.env.DB.prepare(
+    'SELECT id FROM members WHERE id=? AND club_id=? AND active=1',
+  )
+    .bind(c.req.param('id'), c.get('club').id)
+    .first();
+  if (!member) throw new ApiError(404, 'NOT_FOUND', 'Perfil não encontrado.');
+  const code = token();
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM member_claims WHERE member_id=?').bind(c.req.param('id')),
+    c.env.DB.prepare(
+      'INSERT INTO member_claims (id,member_id,code_hash,created_by,expires_at,used_at) VALUES (?,?,?,?,?,NULL)',
+    ).bind(id(), c.req.param('id'), await hash(code), c.get('member').id, now + 7 * 86400),
+  ]);
+  return c.json({ claimCode: code });
 });
 
 clubRoutes.delete('/members/:id', async (c) => {

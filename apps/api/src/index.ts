@@ -80,6 +80,9 @@ export default {
         env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now),
         env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at<?').bind(now),
         env.DB.prepare('DELETE FROM login_codes WHERE expires_at<?').bind(now),
+        env.DB.prepare('DELETE FROM member_claims WHERE expires_at<? OR used_at IS NOT NULL').bind(
+          now,
+        ),
         env.DB.prepare('DELETE FROM mail_outbox WHERE created_at<?').bind(now - 30 * 86400),
         env.DB.prepare('DELETE FROM provider_cache WHERE expires_at<?').bind(
           Date.now() - 30 * 86400000,
