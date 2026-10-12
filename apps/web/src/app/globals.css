@@ -1453,7 +1453,13 @@ summary {
 
 .turnstile-slot {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
+}
+.turnstile-slot:has(iframe:not([hidden])) {
+  margin: 0 0 16px;
+}
+.turnstile-slot:empty {
+  display: none;
 }
 .turnstile-status {
   color: var(--muted);

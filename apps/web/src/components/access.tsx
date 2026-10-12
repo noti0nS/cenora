@@ -377,6 +377,13 @@ function Door({
   const [showClubCode, setShowClubCode] = useState(false);
   const [showRecoveryCode, setShowRecoveryCode] = useState(false);
   const turnstile = useTurnstile(mode === 'email');
+  const [tokenSpent, setTokenSpent] = useState(false);
+  const resetTurnstile = turnstile.reset;
+  useEffect(() => {
+    if (!tokenSpent || (step === 'code' && resendIn > 0)) return;
+    setTokenSpent(false);
+    resetTurnstile();
+  }, [tokenSpent, step, resendIn, resetTurnstile]);
   useEffect(() => {
     if (resendIn <= 0) return;
     const timer = setTimeout(() => setResendIn((value) => value - 1), 1000);
@@ -398,7 +405,8 @@ function Door({
         '/auth/email/start',
         json('POST', { email, turnstileToken: turnstile.token || undefined }),
       );
-      turnstile.reset();
+      // O token é de uso único; o próximo só é necessário ao reenviar ou trocar o e-mail.
+      setTokenSpent(true);
       setStep('code');
       setResendIn(60);
     } catch (e) {

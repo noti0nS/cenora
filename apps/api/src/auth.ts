@@ -735,6 +735,22 @@ auth.post('/claim', async (c) => {
     .first<MembershipRow & { active: number; user_id: string | null }>();
   if (!member || member.active !== 1)
     throw new ApiError(401, 'INVALID_CLAIM', 'Este código de reacesso não é válido ou expirou.');
+  // Quem já está numa conta completa traz o perfil para ela, em vez de trocar de sessão.
+  const current = await resolveSession(c);
+  if (current?.user && !current.scopedMemberId) {
+    const holder = member.user_id
+      ? await c.env.DB.prepare('SELECT email FROM users WHERE id=?')
+          .bind(member.user_id)
+          .first<{ email: string | null }>()
+      : null;
+    if (!holder?.email || member.user_id === current.user.id) {
+      const linked = await linkProfile(c, current.user, member, member.user_id);
+      await c.env.DB.prepare('UPDATE member_claims SET used_at=? WHERE id=?')
+        .bind(now, claim.id)
+        .run();
+      return linked;
+    }
+  }
   await c.env.DB.prepare('UPDATE member_claims SET used_at=? WHERE id=?').bind(now, claim.id).run();
   const user = member.user_id
     ? await c.env.DB.prepare('SELECT id,email FROM users WHERE id=?')
@@ -749,6 +765,40 @@ auth.post('/claim', async (c) => {
     scoped: Boolean(user),
   });
 });
+
+// Traz um perfil para a conta já logada. Um perfil sem e-mail pode ter uma identidade própria
+// (criada ao entrar sem conta): ela é fundida, o que traz os demais clubes dela junto.
+async function linkProfile(
+  c: Context<AppEnv>,
+  user: SessionUser,
+  membership: MembershipRow,
+  profileUserId: string | null,
+) {
+  if (profileUserId && profileUserId !== user.id) {
+    const owner = await c.env.DB.prepare('SELECT email FROM users WHERE id=?')
+      .bind(profileUserId)
+      .first<{ email: string | null }>();
+    if (owner?.email) throw new ApiError(409, 'LINKED', 'Este perfil já está em outra conta.');
+    await mergeIdentities(c, profileUserId, user.id);
+  } else if (!profileUserId) {
+    const taken = await c.env.DB.prepare(
+      'SELECT id FROM members WHERE club_id=? AND user_id=? AND active=1',
+    )
+      .bind(membership.club_id, user.id)
+      .first();
+    if (taken)
+      throw new ApiError(
+        409,
+        'MERGE_CONFLICT',
+        'Sua conta já tem um perfil neste clube. Peça ao dono para remover um dos perfis.',
+      );
+    await c.env.DB.prepare('UPDATE members SET user_id=? WHERE id=?')
+      .bind(user.id, membership.member_id)
+      .run();
+  }
+  await activate(c, c.get('sessionHash'), user.id, membership);
+  return c.json({ user, member: toMember(membership), club: toClub(membership), scoped: false });
+}
 
 auth.post('/link', async (c) => {
   await rateLimit(c);
@@ -767,39 +817,33 @@ auth.post('/link', async (c) => {
       .first<{ id: string; name: string; role: 'owner' | 'member'; user_id: string | null }>();
     if (!member)
       throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código deste perfil.');
-    const membership: MembershipRow = {
-      member_id: member.id,
-      member_name: member.name,
-      role: member.role,
-      club_id: club.id,
-      club_name: club.name,
-      token_version: club.token_version,
-    };
-    if (!member.user_id) {
-      const taken = await c.env.DB.prepare(
-        'SELECT id FROM members WHERE club_id=? AND user_id=? AND active=1',
-      )
-        .bind(club.id, session.user.id)
-        .first();
-      if (taken)
-        throw new ApiError(
-          409,
-          'MERGE_CONFLICT',
-          'Sua conta já tem um perfil neste clube. Peça ao dono para remover um dos perfis.',
-        );
-      await c.env.DB.prepare('UPDATE members SET user_id=? WHERE id=?')
-        .bind(session.user.id, member.id)
-        .run();
-    } else if (member.user_id !== session.user.id) {
-      throw new ApiError(409, 'LINKED', 'Este perfil já está em outra conta.');
-    }
-    await activate(c, c.get('sessionHash'), session.user.id, membership);
-    return c.json({ user: session.user, member: toMember(membership), club: toClub(membership) });
+    return linkProfile(
+      c,
+      session.user,
+      {
+        member_id: member.id,
+        member_name: member.name,
+        role: member.role,
+        club_id: club.id,
+        club_name: club.name,
+        token_version: club.token_version,
+      },
+      member.user_id,
+    );
   }
   const source = await c.env.DB.prepare('SELECT id,email FROM users WHERE recovery_hash=?')
     .bind(digest)
     .first<{ id: string; email: string | null }>();
-  if (!source) throw new ApiError(401, 'INVALID_RECOVERY', 'Código de recuperação inválido.');
+  if (!source) {
+    // Só o código basta: ele é longo e aleatório, então identifica o perfil antigo sozinho.
+    const legacy = await c.env.DB.prepare(
+      'SELECT m.id member_id,m.name member_name,m.role,m.user_id,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.recovery_hash=? AND m.active=1',
+    )
+      .bind(digest)
+      .first<MembershipRow & { user_id: string | null }>();
+    if (!legacy) throw new ApiError(401, 'INVALID_RECOVERY', 'Código de recuperação inválido.');
+    return linkProfile(c, session.user, legacy, legacy.user_id);
+  }
   if (source.id === session.user.id)
     throw new ApiError(409, 'LINKED', 'Este código é da identidade que você já está usando.');
   if (source.email)

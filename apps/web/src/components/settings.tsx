@@ -164,9 +164,7 @@ export function SettingsDialog({
     [confirm, setConfirm] = useState<{ label: string; run: () => Promise<void> } | null>(null),
     [code, setCode] = useState<{ label: string; value: string } | null>(null),
     [saved, setSaved] = useState(false),
-    [linkMode, setLinkMode] = useState<'profile' | 'access'>('profile'),
-    [linkName, setLinkName] = useState(''),
-    [linkToken, setLinkToken] = useState(''),
+    [linkMode, setLinkMode] = useState<'claim' | 'recovery'>('claim'),
     [linkCode, setLinkCode] = useState(''),
     [joinName, setJoinName] = useState(''),
     [joinToken, setJoinToken] = useState(''),
@@ -309,15 +307,15 @@ export function SettingsDialog({
   const link = async (e: React.FormEvent) => {
     e.preventDefault();
     await run(async () => {
-      const payload =
-        linkMode === 'profile'
-          ? { name: linkName, token: linkToken.trim(), recoveryCode: linkCode.trim() }
-          : { recoveryCode: linkCode.trim() };
-      await api('/auth/link', json('POST', payload));
+      await api(
+        linkMode === 'claim' ? '/auth/claim' : '/auth/link',
+        json(
+          'POST',
+          linkMode === 'claim' ? { code: linkCode.trim() } : { recoveryCode: linkCode.trim() },
+        ),
+      );
       refresh();
-      toast.success(linkMode === 'profile' ? 'Perfil vinculado.' : 'Clubes trazidos.');
-      setLinkName('');
-      setLinkToken('');
+      toast.success('Perfil trazido para esta conta.');
       setLinkCode('');
     });
   };
@@ -492,36 +490,17 @@ export function SettingsDialog({
                   onChange={setLinkMode}
                   label="O que você quer trazer"
                   options={[
-                    { value: 'profile', label: 'Um perfil antigo' },
-                    { value: 'access', label: 'Outro acesso sem conta' },
+                    { value: 'claim', label: 'Código do dono' },
+                    { value: 'recovery', label: 'Código de recuperação' },
                   ]}
                 />
                 <form className="stack" onSubmit={link}>
-                  {linkMode === 'profile' && (
-                    <>
-                      <Field label="Nome no clube">
-                        <input
-                          autoComplete="nickname"
-                          value={linkName}
-                          onChange={(e) => setLinkName(e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Código do clube">
-                        <input
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={linkToken}
-                          onChange={(e) => setLinkToken(e.target.value)}
-                        />
-                      </Field>
-                    </>
-                  )}
                   <Field
-                    label="Código de recuperação"
+                    label={linkMode === 'claim' ? 'Código de reacesso' : 'Código de recuperação'}
                     hint={
-                      linkMode === 'profile'
-                        ? 'O código pessoal daquele perfil.'
-                        : 'O código do outro aparelho. Trazendo os clubes dele para esta conta.'
+                      linkMode === 'claim'
+                        ? 'Peça ao dono do clube em Configurações › Reacesso. O perfil sem e-mail passa a ser da sua conta.'
+                        : 'O código do perfil ou do aparelho antigo. Basta ele, sem nome nem código do clube.'
                     }
                   >
                     <input
@@ -535,11 +514,7 @@ export function SettingsDialog({
                     type="submit"
                     className="secondary"
                     busy={busy}
-                    disabled={
-                      linkCode.trim().length < 12 ||
-                      (linkMode === 'profile' &&
-                        (linkName.trim().length < 2 || linkToken.trim().length < 12))
-                    }
+                    disabled={linkCode.trim().length < 12}
                   >
                     <Link2 size={15} />
                     Trazer para esta conta
@@ -584,38 +559,24 @@ export function SettingsDialog({
                               className="text-button"
                               disabled={busy}
                               onClick={() =>
-                                setConfirm(
-                                  m.linked
-                                    ? {
-                                        label: `Gerar um código de reacesso para ${m.name}? Ele abre só este clube, por 7 dias, uma vez.`,
-                                        run: async () => {
-                                          const r = await api<{ claimCode: string }>(
-                                            `/club/members/${m.id}/claim`,
-                                            json('POST'),
-                                          );
-                                          showCode(
-                                            `Reacesso de ${m.name} · envie para a pessoa`,
-                                            r.claimCode,
-                                          );
-                                        },
-                                      }
-                                    : {
-                                        label: `Substituir o código pessoal de ${m.name}? Os outros dispositivos precisarão entrar novamente.`,
-                                        run: async () => {
-                                          const r = await api<{ recoveryCode: string }>(
-                                            `/club/members/${m.id}/recovery`,
-                                            json('POST'),
-                                          );
-                                          showCode(
-                                            `Código de recuperação de ${m.name}`,
-                                            r.recoveryCode,
-                                          );
-                                        },
-                                      },
-                                )
+                                setConfirm({
+                                  label: m.linked
+                                    ? `Gerar um código de reacesso para ${m.name}? Ele abre só este clube, por 7 dias, uma vez.`
+                                    : `Gerar um código de reacesso para ${m.name}? Quem tiver uma conta pode usá-lo em Configurações para trazer este perfil, por 7 dias, uma vez.`,
+                                  run: async () => {
+                                    const r = await api<{ claimCode: string }>(
+                                      `/club/members/${m.id}/claim`,
+                                      json('POST'),
+                                    );
+                                    showCode(
+                                      `Reacesso de ${m.name} · envie para a pessoa`,
+                                      r.claimCode,
+                                    );
+                                  },
+                                })
                               }
                             >
-                              {m.linked ? 'Reacesso' : 'Recuperar'}
+                              Reacesso
                             </button>
                             <button
                               className="text-button danger"

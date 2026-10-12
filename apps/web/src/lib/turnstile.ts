@@ -36,7 +36,7 @@ export function useTurnstile(enabled: boolean) {
       try {
         widget.current = window.turnstile.render(container.current, {
           sitekey: turnstileSiteKey,
-          appearance: 'always',
+          appearance: 'interaction-only',
           size: 'flexible',
           callback: (value: string) => {
             if (cancelled) return;

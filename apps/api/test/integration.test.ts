@@ -1264,6 +1264,53 @@ describe('guest identities on the same runtime', () => {
   });
 });
 describe('scoped re-access and identity linking', () => {
+  it('lets a signed-in account claim a profile without identity', async () => {
+    const owner = await createClub('Dona');
+    const guest = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Visitante', token: owner.clubToken },
+      '',
+    );
+    expect(guest.status).toBe(201);
+    const guestId = ((await guest.json()) as any).member.id;
+    const issue = () =>
+      request('/club/members/' + guestId + '/claim', 'POST', undefined, owner.cookie).then(
+        async (r) => ((await r.json()) as any).claimCode as string,
+      );
+    const account = await loginByEmail('visitante.claim@example.com');
+    const claimed = await request('/auth/claim', 'POST', { code: await issue() }, account.cookie);
+    expect(claimed.status).toBe(200);
+    const data = (await claimed.json()) as any;
+    expect(data.scoped).toBe(false);
+    expect(data.member.id).toBe(guestId);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(session.member.id).toBe(guestId);
+    expect(session.clubs.map((option: any) => option.memberId)).toContain(guestId);
+    // A mesma conta não pode ter dois perfis ativos no clube.
+    const second = await request(
+      '/auth/join',
+      'POST',
+      { name: 'Outro', token: owner.clubToken },
+      '',
+    );
+    const secondId = ((await second.json()) as any).member.id;
+    const again = await request(
+      '/club/members/' + secondId + '/claim',
+      'POST',
+      undefined,
+      owner.cookie,
+    );
+    const conflict = await request(
+      '/auth/claim',
+      'POST',
+      { code: ((await again.json()) as any).claimCode },
+      account.cookie,
+    );
+    expect(conflict.status).toBe(409);
+  });
   it('grants the owner claim code as a session locked to one club', async () => {
     const ana = await createClub('Ana');
     const beto = await createClub('Beto');
@@ -1486,7 +1533,25 @@ describe('scoped re-access and identity linking', () => {
       account.cookie,
     );
     expect(linkedElsewhere.status).toBe(409);
-    expect(((await linkedElsewhere.json()) as any).error.code).toBe('LINKED');
+    // Ana tem identidade sem e-mail: ela só seria fundida sem conflito de clubes.
+    expect(((await linkedElsewhere.json()) as any).error.code).toBe('MERGE_CONFLICT');
+  });
+  it('links a profile by its code alone', async () => {
+    const owner = await createClub('Dona do código');
+    const guest = await request('/auth/join', 'POST', { name: 'Solo', token: owner.clubToken }, '');
+    const guestData = (await guest.json()) as any;
+    const account = await loginByEmail('solo.code@example.com');
+    const linked = await request(
+      '/auth/link',
+      'POST',
+      { recoveryCode: guestData.recoveryCode },
+      account.cookie,
+    );
+    expect(linked.status).toBe(200);
+    const session = (await (
+      await request('/auth/session', 'GET', undefined, account.cookie)
+    ).json()) as any;
+    expect(session.clubs.map((option: any) => option.memberId)).toContain(guestData.member.id);
   });
   it('fuses a guest identity into an account, moving clubs and sessions', async () => {
     const ana = await createClub('Ana');
