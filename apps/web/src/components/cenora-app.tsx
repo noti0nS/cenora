@@ -34,6 +34,7 @@ import {
   X,
   Play,
   Star,
+  Dices,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
@@ -46,6 +47,7 @@ import { TitleStage } from './title-stage';
 import { AddMedia } from './add-media';
 import { SettingsDialog } from './settings';
 import { ImportDialog } from './import-dialog';
+import { Roleta } from './roleta';
 
 type Kind = 'movie' | 'tv';
 type Page = { items: Media[]; nextOffset: number | null };
@@ -140,7 +142,8 @@ function App() {
     [sort, setSort] = useState('recent');
   const [add, setAdd] = useState(false),
     [settings, setSettings] = useState(false),
-    [importing, setImporting] = useState(false);
+    [importing, setImporting] = useState(false),
+    [spinning, setSpinning] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const q = useDebounced(search);
   useEffect(() => {
@@ -223,6 +226,14 @@ function App() {
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
+  // What the group is watching right now, pinned above the shelf (invalidated with ['media']).
+  const watchingNow = useQuery({
+    queryKey: ['media', 'watching', kind],
+    enabled: Boolean(session.data?.member),
+    queryFn: () => api<Page>(`/media?kind=${kind}&status=watching&sort=recent`),
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+  });
   const unauthorized = [counts.error, media.error].some(
     (e) => e instanceof RequestError && e.status === 401,
   );
@@ -288,6 +299,9 @@ function App() {
   }, [media.hasNextPage, media.isFetchingNextPage, media.fetchNextPage, items.length]);
   const total = counts.data?.[kind] ?? 0;
   const filtered = Boolean(q || activeStatus);
+  const watchingItems = !filtered && !mine ? (watchingNow.data?.items ?? []) : [];
+  const inProgress = new Set(watchingItems.map((item) => item.id));
+  const shelfItems = inProgress.size ? items.filter((item) => !inProgress.has(item.id)) : items;
   return (
     <>
       <Toaster
@@ -463,6 +477,10 @@ function App() {
               ))}
             </div>
             <div className="toolbar-end">
+              <button className="chip roleta-chip" onClick={() => setSpinning(true)}>
+                <Dices size={14} />
+                <span>Roleta</span>
+              </button>
               <button
                 className={`chip mine ${mine ? 'on' : ''}`}
                 aria-pressed={mine}
@@ -486,6 +504,22 @@ function App() {
               </select>
             </div>
           </div>
+          {watchingItems.length > 0 && (
+            <section className="watching-now" aria-label="Rolando agora">
+              <h2>Rolando agora</h2>
+              <ul className="watching-strip" key={kind}>
+                {watchingItems.map((item, index) => (
+                  <PosterCard
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    mine={false}
+                    onOpen={() => navigate({ media: item.id })}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
           <main id="shelf" tabIndex={-1} aria-label={kindCopy[kind].tab}>
             {media.isPending ? (
               <div className="shelf" aria-label="Carregando títulos">
@@ -505,7 +539,7 @@ function App() {
             ) : items.length ? (
               <>
                 <ul className="shelf" key={`${kind}-${mine}-${activeStatus}-${sort}`}>
-                  {items.map((item, index) => (
+                  {shelfItems.map((item, index) => (
                     <PosterCard
                       key={item.id}
                       item={item}
@@ -573,6 +607,17 @@ function App() {
             preview={preview}
             onClose={() => navigate({ media: null })}
             catalogAvailable={Boolean(session.data?.catalogAvailable)}
+            clubName={session.data?.club?.name ?? null}
+          />
+          <Roleta
+            open={spinning}
+            onClose={() => setSpinning(false)}
+            kind={kind}
+            mine={mine}
+            onPick={(id) => {
+              setSpinning(false);
+              navigate({ media: id });
+            }}
           />
           <AddMedia
             open={add}

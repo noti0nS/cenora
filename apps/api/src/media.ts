@@ -181,6 +181,17 @@ mediaRoutes.get('/counts', async (c) => {
   for (const row of rows.results) counts[row.kind] = row.count;
   return c.json(counts);
 });
+/** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
+mediaRoutes.get('/spin', async (c) => {
+  const kind = c.req.query('kind') === 'tv' ? 'tv' : 'movie';
+  const mine = c.req.query('mine') === 'true';
+  const result = await c.env.DB.prepare(
+    `${mediaSelect} WHERE m.club_id=? AND m.kind=? AND m.group_status<>'watched' AND (p.status IS NULL OR p.status IN ('want','watching'))${mine ? ' AND p.member_id IS NOT NULL' : ''} ORDER BY RANDOM() LIMIT 12`,
+  )
+    .bind(c.get('club').id, c.get('member').id, c.get('club').id, kind)
+    .all<Row>();
+  return c.json({ items: result.results.map(toMedia) });
+});
 mediaRoutes.get('/search', async (c) => {
   const q = (c.req.query('q') || '').trim().slice(0, 100);
   const page = Math.max(1, Math.min(500, parseInt(c.req.query('page') || '1') || 1));

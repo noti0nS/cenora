@@ -416,6 +416,43 @@ describe('private club on a real Worker + D1 runtime', () => {
       tv: 0,
     });
   });
+  it('spins only unfinished titles of the requested kind from the caller club', async () => {
+    const open = await manual('movie', 'Ainda não vimos');
+    const seen = await manual('movie', 'Já vimos');
+    const closed = await manual('movie', 'Já vi sozinho');
+    await manual('tv', 'Uma série');
+    const group = (await (await request(`/media/${seen.id}`)).json()) as any;
+    expect(
+      (
+        await request(`/media/${seen.id}/group`, 'PUT', {
+          status: 'watched',
+          season: null,
+          episode: null,
+          revision: group.revision,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request(`/media/${closed.id}/personal`, 'PUT', {
+          status: 'watched',
+          rating: 8,
+          season: null,
+          episode: null,
+          revision: 0,
+        })
+      ).status,
+    ).toBe(200);
+    const spin = async (query: string, cookie?: string) =>
+      ((await (await request(`/media/spin${query}`, 'GET', undefined, cookie)).json()) as any)
+        .items;
+    expect((await spin('?kind=movie')).map((item: any) => item.id)).toEqual([open.id]);
+    expect((await spin('?kind=tv')).map((item: any) => item.title)).toEqual(['Uma série']);
+    expect(await spin('?kind=movie&mine=true')).toEqual([]);
+    const other = await createClub('Outro');
+    expect(await spin('?kind=movie', other.cookie)).toEqual([]);
+    expect((await request('/media/spin', 'GET', undefined, '')).status).toBe(401);
+  });
   it('validates rating increments and rejects movie checkpoints', async () => {
     const title = await manual();
     expect(

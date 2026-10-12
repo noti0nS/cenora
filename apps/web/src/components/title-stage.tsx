@@ -4,10 +4,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { ExternalLink, Link2, Loader2, Pencil, X, Check } from 'lucide-react';
+import { ExternalLink, Link2, Loader2, Pencil, Share2, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CatalogResult, Media, MediaDetails } from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
+import { shareCard } from '@/lib/share-card';
 import { useTitleTracking } from './use-title-tracking';
 import { Modal, Button } from './ui';
 import { Poster } from './poster';
@@ -64,11 +65,13 @@ export function TitleStage({
   preview,
   onClose,
   catalogAvailable,
+  clubName,
 }: {
   id: string | null;
   preview: Media | null;
   onClose: () => void;
   catalogAvailable: boolean;
+  clubName: string | null;
 }) {
   const query = useQuery({
     queryKey: ['detail', id],
@@ -139,6 +142,7 @@ export function TitleStage({
                             key={query.data.id}
                             data={query.data}
                             catalogAvailable={catalogAvailable}
+                            clubName={clubName}
                           />
                         ) : (
                           <Pending title={title} kind={preview?.kind} />
@@ -173,7 +177,43 @@ function Pending({ title, kind }: { title: string; kind?: 'movie' | 'tv' }) {
     </>
   );
 }
-function Loaded({ data, catalogAvailable }: { data: MediaDetails; catalogAvailable: boolean }) {
+function ShareButton({ data, clubName }: { data: MediaDetails; clubName: string | null }) {
+  const [busy, setBusy] = useState(false);
+  const share = async () => {
+    setBusy(true);
+    try {
+      const result = await shareCard({
+        title: data.title,
+        kind: data.kind,
+        year: data.year,
+        posterUrl: data.posterUrl,
+        clubName,
+        clubRating: data.average,
+        myRating: data.personal?.rating ?? null,
+      });
+      if (result === 'downloaded') toast.success('Imagem salva. É só compartilhar.');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="text-button share-button" onClick={share} disabled={busy}>
+      {busy ? <Loader2 size={14} className="spin" /> : <Share2 size={14} />}
+      Compartilhar
+    </button>
+  );
+}
+function Loaded({
+  data,
+  catalogAvailable,
+  clubName,
+}: {
+  data: MediaDetails;
+  catalogAvailable: boolean;
+  clubName: string | null;
+}) {
   const qc = useQueryClient();
   const tracking = useTitleTracking(data);
   const [personId, setPersonId] = useState<number | null>(null),
@@ -209,7 +249,10 @@ function Loaded({ data, catalogAvailable }: { data: MediaDetails; catalogAvailab
             ? ` · ${data.seasons.length} ${data.seasons.length === 1 ? 'temporada' : 'temporadas'} · ${episodeCount} episódios`
             : ''}
         </p>
-        <SaveBadge saving={tracking.saving} />
+        <div className="stage-head-end">
+          <ShareButton data={data} clubName={clubName} />
+          <SaveBadge saving={tracking.saving} />
+        </div>
       </div>
       <m.h2
         className="stage-title"

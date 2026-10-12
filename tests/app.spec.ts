@@ -367,3 +367,48 @@ test('private codes can be revealed without submitting, with spaced mobile acces
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await context.close();
 });
+test('the roleta picks a title to open, and the title can be shared as a branded image', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('.card')).toHaveCount(30);
+  await page.getByRole('button', { name: 'Roleta', exact: true }).click();
+  const roleta = page.getByRole('dialog', { name: 'Roleta' });
+  await expect(roleta).toBeVisible();
+  const open = roleta.getByRole('button', { name: 'Abrir título' });
+  await expect(open).toBeVisible({ timeout: 10000 });
+  await expect(roleta.getByRole('button', { name: 'Girar de novo' })).toBeEnabled();
+  await open.click();
+  await expect(roleta).not.toBeVisible();
+  const stage = page.locator('.stage');
+  await expect(stage).toBeVisible();
+  const download = page.waitForEvent('download');
+  await stage.getByRole('button', { name: 'Compartilhar' }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.png$/);
+});
+test('titles the group is watching are pinned in a "Rolando agora" section', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.card')).toHaveCount(30);
+  await expect(page.getByRole('region', { name: 'Rolando agora' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  const stage = page.getByRole('dialog', { name: 'A Origem' });
+  const saved = savedAs(page, '"status":"watching"');
+  await stage.getByRole('button', { name: 'Rolando', exact: true }).click();
+  await saved;
+  await page.keyboard.press('Escape');
+  const section = page.getByRole('region', { name: 'Rolando agora' });
+  await expect(section.getByRole('button', { name: 'Abrir A Origem', exact: true })).toBeVisible();
+  await expect(page.locator('.card')).toHaveCount(30);
+  await page.getByRole('tab', { name: /Séries/ }).click();
+  await expect(section).toHaveCount(0);
+  await page.getByRole('tab', { name: /Filmes/ }).click();
+  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  const back = savedAs(page, '"status":"planned"');
+  await page
+    .getByRole('dialog', { name: 'A Origem' })
+    .getByRole('button', { name: 'Vamos ver', exact: true })
+    .click();
+  await back;
+  await page.keyboard.press('Escape');
+  await expect(section).toHaveCount(0);
+});
