@@ -1,0 +1,27 @@
+{
+  "name": "@watchlist/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cf dev --mode development",
+    "build": "cf build",
+    "deploy": "cf deploy",
+    "deploy:check": "cf deploy --dry-run",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@watchlist/shared": "workspace:*",
+    "hono": "^4.13.13",
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "cf": "1.0.0-beta.14",
+    "wrangler": ">=4.136.0",
+    "miniflare": "latest",
+    "vitest": "latest",
+    "esbuild": "latest",
+    "@cloudflare/workers-types": "latest"
+  }
+}

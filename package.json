@@ -1,0 +1,29 @@
+{
+  "name": "watchlist",
+  "private": true,
+  "packageManager": "pnpm@11.0.8",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @watchlist/web build && pnpm --filter @watchlist/api dev",
+    "dev:web": "pnpm --filter @watchlist/web dev",
+    "build": "pnpm --filter @watchlist/web build && pnpm --filter @watchlist/api build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @watchlist/api test",
+    "test:e2e": "pnpm --filter @watchlist/web build && playwright test",
+    "deploy": "pnpm --filter @watchlist/web build && pnpm --filter @watchlist/api deploy",
+    "deploy:check": "pnpm --filter @watchlist/web build && pnpm --filter @watchlist/api deploy:check",
+    "db:migrate": "node scripts/database.mjs migrate",
+    "club:bootstrap": "node scripts/database.mjs bootstrap",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "typescript": "latest",
+    "@types/node": "latest",
+    "prettier": "^3.6.2"
+  }
+}

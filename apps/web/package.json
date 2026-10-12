@@ -1,0 +1,35 @@
+{
+  "name": "@watchlist/web",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@watchlist/shared": "workspace:*",
+    "zod": "^4.6.6",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@tanstack/react-query": "latest",
+    "@radix-ui/react-dialog": "latest",
+    "@radix-ui/react-dropdown-menu": "latest",
+    "@radix-ui/react-popover": "latest",
+    "react-hook-form": "latest",
+    "@hookform/resolvers": "latest",
+    "motion": "latest",
+    "lucide-react": "latest",
+    "sonner": "latest",
+    "clsx": "latest",
+    "tailwind-merge": "latest",
+    "@fontsource/space-grotesk": "latest",
+    "@fontsource/nunito-sans": "latest"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.3.3",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}

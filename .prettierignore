@@ -1,0 +1,14 @@
+node_modules
+pnpm-lock.yaml
+.next
+out
+dist
+.cloudflare
+.wrangler
+.local
+.test
+coverage
+playwright-report
+test-results
+apps/web/public/tmdb.svg
+**/next-env.d.ts

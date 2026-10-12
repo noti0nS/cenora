@@ -1,0 +1,15 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE club (id INTEGER PRIMARY KEY CHECK(id = 1), setup_hash TEXT, token_hash TEXT, token_version INTEGER NOT NULL DEFAULT 1, owner_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE members (id TEXT PRIMARY KEY, name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE, recovery_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('owner','member')), active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE, club_version INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX sessions_expiry ON sessions(expires_at);
+CREATE TABLE lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE, color TEXT NOT NULL, icon TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL REFERENCES members(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE media (id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_title TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('movie','tv')), year INTEGER, synopsis TEXT NOT NULL DEFAULT '', poster_url TEXT, tmdb_id INTEGER, tmdb_rating REAL, metadata TEXT, group_status TEXT NOT NULL DEFAULT 'planned' CHECK(group_status IN ('planned','watching','watched')), group_season INTEGER, group_episode INTEGER, revision INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL REFERENCES members(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tmdb_id, kind), CHECK((group_season IS NULL) = (group_episode IS NULL)), CHECK(kind = 'tv' OR group_season IS NULL));
+CREATE INDEX media_manual_lookup ON media(normalized_title, kind);
+CREATE TABLE list_items (list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE, media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE, added_by TEXT NOT NULL REFERENCES members(id), position INTEGER NOT NULL, added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(list_id, media_id));
+CREATE INDEX list_items_media ON list_items(media_id);
+CREATE TABLE member_media (member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE, media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'want' CHECK(status IN ('want','watching','watched','dropped')), half_points INTEGER CHECK(half_points BETWEEN 1 AND 20), season INTEGER, episode INTEGER, revision INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(member_id, media_id), CHECK((season IS NULL) = (episode IS NULL)));
+CREATE INDEX member_media_media ON member_media(media_id);
+CREATE TABLE provider_cache (key TEXT PRIMARY KEY, payload TEXT NOT NULL, expires_at INTEGER NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX provider_cache_expiry ON provider_cache(expires_at);
+CREATE TABLE auth_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL);
