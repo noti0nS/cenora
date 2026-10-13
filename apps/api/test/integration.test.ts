@@ -145,6 +145,49 @@ beforeEach(async () => {
 afterEach(async () => {
   await mf?.dispose();
 });
+describe('private recommendations', () => {
+  it('requires a session, validates kind and isolates club, member, shelf and mine', async () => {
+    expect((await request('/media/recommendations', 'GET', undefined, '')).status).toBe(401);
+    expect((await request('/media/recommendations?kind=other')).status).toBe(400);
+    const movie = await manual('movie', 'Filme da fila');
+    const show = await manual('tv', 'Série da fila');
+    const listId = (await lists())[0].id;
+    const animeResponse = await request('/media/manual', 'POST', {
+      title: 'Anime da fila',
+      kind: 'tv',
+      isAnime: true,
+      listId,
+    });
+    expect(animeResponse.status).toBe(201);
+    const anime = (await animeResponse.json()) as any;
+    expect(
+      (
+        await request(`/media/${movie.id}/personal`, 'PUT', {
+          status: 'watched',
+          rating: 9,
+          season: null,
+          episode: null,
+          revision: 0,
+        })
+      ).status,
+    ).toBe(200);
+    const result = async (query = '', cookie = ownerCookie) => {
+      const response = await request(`/media/recommendations${query}`, 'GET', undefined, cookie);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      return (await response.json()) as any;
+    };
+    expect(await result()).toMatchObject({ shelf: [], discover: [], catalogAvailable: false });
+    const friend = await join('Amiga');
+    expect((await result('', friend.cookie)).shelf.map((m: any) => m.id)).toEqual([movie.id]);
+    expect((await result('?mine=true', friend.cookie)).shelf).toEqual([]);
+    expect((await result('?kind=tv')).shelf.map((m: any) => m.id)).toEqual([show.id]);
+    expect((await result('?kind=anime')).shelf.map((m: any) => m.id)).toEqual([anime.id]);
+    const outside = await createClub('Outro clube');
+    expect((await result('?kind=tv', outside.cookie)).shelf).toEqual([]);
+    expect((await result('', outside.cookie)).shelf).toEqual([]);
+  });
+});
 describe('private club ranking', () => {
   const personal = (
     id: string,

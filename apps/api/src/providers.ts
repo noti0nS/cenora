@@ -1,4 +1,4 @@
-import type { CatalogResult, Person, Provider, Season } from '@cenora/shared';
+import type { CatalogResult, Person, Provider, Season, ShelfKind } from '@cenora/shared';
 import { ApiError, type Env } from './lib';
 type Json = Record<string, any>;
 const animeSeries = (kind: string, r: Json) =>
@@ -120,6 +120,33 @@ export async function catalogDetails(env: Env, kind: 'movie' | 'tv', tmdbId: num
     imdbId: r.imdb_id || r.external_ids?.imdb_id || null,
     stale: result.stale,
   };
+}
+/** Public title-to-title suggestions only; no member data goes to TMDB or the shared cache. */
+export async function recommendationCatalog(env: Env, shelf: ShelfKind, seedId?: number) {
+  const kind = shelf === 'movie' ? 'movie' : 'tv';
+  const path = seedId
+    ? `${kind}/${seedId}/recommendations?include_adult=false`
+    : `discover/${kind}?include_adult=false&sort_by=popularity.desc&vote_count.gte=50${shelf === 'anime' ? '&with_genres=16&with_origin_country=JP' : ''}`;
+  const result = await cached(
+    env,
+    seedId ? `recommendations:${kind}:${seedId}:pt-BR` : `discover:${shelf}:pt-BR`,
+    86400,
+    () => tmdb(env, path),
+  );
+  const items: CatalogResult[] = (result.data.results || [])
+    .filter((r: Json) => Number.isInteger(r.id) && r.id > 0 && !r.adult)
+    .map((r: Json): CatalogResult => ({
+      tmdbId: r.id,
+      title: r.title || r.name,
+      kind,
+      isAnime: Boolean(animeSeries(kind, r)),
+      year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
+      posterUrl: image(r.poster_path),
+      synopsis: r.overview || '',
+      existingId: null,
+    }))
+    .filter((r: CatalogResult) => kind === 'movie' || r.isAnime === (shelf === 'anime'));
+  return { items, stale: result.stale };
 }
 export async function availability(env: Env, kind: 'movie' | 'tv', tmdbId: number) {
   const result = await cached(env, `providers:${kind}:${tmdbId}:BR`, 86400, () =>

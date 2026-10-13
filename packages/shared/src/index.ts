@@ -215,6 +215,14 @@ export interface CatalogPage {
   totalPages: number;
   available: boolean;
 }
+export interface Recommendations {
+  shelf: (Media & { reason: string })[];
+  discover: (CatalogResult & { reason: string })[];
+  personalized: boolean;
+  catalogAvailable: boolean;
+  degraded: boolean;
+  stale: boolean;
+}
 export interface SessionUser {
   id: string;
   email: string | null;

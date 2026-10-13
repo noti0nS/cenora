@@ -91,6 +91,90 @@ const savedAs = (page: Page, fragment: string) =>
       (r.request().postData() || '').includes(fragment) &&
       r.ok(),
   );
+test('recommendations offer shelf picks and graceful discovery without a configured catalog', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Recomendações' });
+  await expect(dialog.getByText('Conecte o catálogo TMDB', { exact: false })).toBeVisible();
+  await expect(
+    dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
+  ).toHaveCount(12);
+  await dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }).click();
+  await expect(
+    dialog.getByText('Nenhuma novidade disponível agora.', { exact: false }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Da estante', exact: true }).click();
+  const title = await dialog.locator('.recommendation-results strong').first().textContent();
+  await dialog.locator('.catalog-result').first().click();
+  await expect(page.getByRole('dialog', { name: title!, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+  await page.getByRole('tab', { name: /Animes/ }).click();
+  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
+  await expect(
+    dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
+  ).toHaveCount(3);
+  await expect(dialog.getByText('Sugestões de animes para você', { exact: false })).toBeVisible();
+});
+
+test('recommendation discovery adds through the catalog contract and opens the title on mobile', async ({
+  page,
+}) => {
+  const mediaResponse = await page.request.get('/api/media?kind=movie');
+  const target = (await mediaResponse.json()).items[0];
+  await page.route('**/api/media/recommendations?*', (route) =>
+    route.fulfill({
+      json: {
+        shelf: [],
+        discover: [
+          {
+            tmdbId: 987654,
+            title: target.title,
+            kind: 'movie',
+            isAnime: false,
+            year: 2026,
+            synopsis: '',
+            posterUrl: null,
+            existingId: null,
+            reason: 'Porque você gostou de A Origem',
+          },
+        ],
+        personalized: true,
+        catalogAvailable: true,
+        degraded: false,
+        stale: false,
+      },
+    }),
+  );
+  let added = false;
+  await page.route('**/api/media/catalog', async (route) => {
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().postDataJSON()).toMatchObject({
+      tmdbId: 987654,
+      kind: 'movie',
+      isAnime: false,
+    });
+    expect(route.request().postDataJSON().listId).toBeTruthy();
+    added = true;
+    await route.fulfill({ status: 201, json: { id: target.id, isAnime: false } });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Recomendações' });
+  await dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }).click();
+  await expect(dialog.getByText('Porque você gostou de A Origem')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await dialog
+    .getByRole('button', { name: `Adicionar ${target.title} à estante`, exact: true })
+    .click();
+  await expect(page.getByRole('dialog', { name: target.title, exact: true })).toBeVisible();
+  expect(added).toBe(true);
+});
+
 test('movie poster stays in place while session status changes and autosaves', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();

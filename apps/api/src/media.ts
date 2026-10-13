@@ -13,6 +13,7 @@ import { ApiError, body, checkpoint, id, owner, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
 import { metadataSeasons, progressUnits, recordProgress } from './ranking';
 import { awardAchievements } from './achievements';
+import { recommendations } from './recommendations';
 
 type Row = Record<string, any>;
 export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id JOIN media rated ON rated.id=mm.media_id WHERE rated.club_id=? AND rater.club_id=rated.club_id AND rater.active=1 GROUP BY mm.media_id)
@@ -188,6 +189,17 @@ mediaRoutes.get('/counts', async (c) => {
   const counts = { movie: 0, tv: 0, anime: 0 };
   for (const row of rows.results) counts[row.kind] = row.count;
   return c.json(counts);
+});
+mediaRoutes.get('/recommendations', async (c) => {
+  const kind = c.req.query('kind') ?? 'movie';
+  if (kind !== 'movie' && kind !== 'tv' && kind !== 'anime')
+    throw new ApiError(400, 'VALIDATION', 'Escolha filmes, séries ou animes.');
+  const result = await c.env.DB.prepare(`${mediaSelect} WHERE m.club_id=?`)
+    .bind(c.get('club').id, c.get('member').id, c.get('club').id)
+    .all<Row>();
+  return c.json(
+    await recommendations(c.env, kind, result.results.map(toMedia), c.req.query('mine') === 'true'),
+  );
 });
 /** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
 /** Same-origin copy of a catalog poster, so the share card canvas is not tainted by CORS. */

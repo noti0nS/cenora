@@ -52,6 +52,8 @@ Restart the Worker after changing credentials. These values stay on the backend;
 - Streaming availability is for Brazil, grouped by subscription, rental, and purchase. The link opens TMDB's availability page; provider results are not direct playback links.
 - OMDb supplies IMDb scores when an IMDb ID exists. It is optional and its failures do not block the app.
 - Search results are cached for one hour; details, biographies, and IMDb scores for seven days; streaming availability for one day. Stale cached data survives temporary provider failures.
+- Recommendations offers both picks from the existing shelf and new TMDB titles, separately for movies, shows, and anime. Up to four personal ratings of 7 or above seed TMDB's title-to-title recommendations; without usable seeds, discovery uses popular titles. Public recommendation/discovery responses are cached for one day. Personal rankings are computed per request and never stored in the shared provider cache or sent to TMDB.
+- Shelf picks exclude personally watched/dropped titles and ratings of 4 or below; the club view also excludes titles finished by the group, while “Só os meus” limits picks to personal tracking. Unmatched shelf titles fall back to viewing intent and club ratings, including manual titles and provider outages. Discovery excludes titles already registered in the club. Anime uses the existing animation/Japan heuristic (anime movies remain in Movies), not a dedicated anime catalog. TMDB failures never block tracking or adding titles manually.
 - The app includes the approved TMDB logo, required TMDB notice, and JustWatch attribution.
 
 The typographic covers are intentional fallbacks for manual entries without posters. They are not invented movie artwork or ratings.

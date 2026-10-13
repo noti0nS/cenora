@@ -55,6 +55,7 @@ import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
 import { Avatar } from './avatar';
 import { ClubRankingDialog } from './club-ranking';
+import { RecommendationsDialog } from './recommendations';
 
 type Kind = ShelfKind;
 type Page = { items: Media[]; nextOffset: number | null };
@@ -162,6 +163,7 @@ function App() {
     [rankingOpen, setRankingOpen] = useState(false),
     [importing, setImporting] = useState(false),
     [spinning, setSpinning] = useState(false),
+    [recommending, setRecommending] = useState(false),
     [inviteOpen, setInviteOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const q = useDebounced(search);
@@ -606,6 +608,10 @@ function App() {
               ))}
             </div>
             <div className="toolbar-end">
+              <button className="chip" onClick={() => setRecommending(true)}>
+                <Sparkles size={14} />
+                <span>Recomendações</span>
+              </button>
               <button className="chip roleta-chip" onClick={() => setSpinning(true)}>
                 <Dices size={14} />
                 <span>Roleta</span>
@@ -764,6 +770,19 @@ function App() {
             onPick={(id) => {
               setSpinning(false);
               navigate({ media: id });
+            }}
+          />
+          <RecommendationsDialog
+            key={`${member.id}:${kind}:${mine}`}
+            open={recommending}
+            onClose={() => setRecommending(false)}
+            kind={kind}
+            mine={mine}
+            memberId={member.id}
+            ensureList={ensureList}
+            onPick={(id, selectedKind) => {
+              setRecommending(false);
+              navigate({ kind: selectedKind, media: id });
             }}
           />
           <AddMedia
