@@ -157,3 +157,7 @@ pnpm recover -- <memberId> --remote
 ### Continuous Integration
 
 `.github/workflows/publish.yml` runs formatting, type checking, Vitest integration tests, Playwright browser tests, and a deployment dry-run on every push and pull request to `main`. On pushes to `main`, it applies pending remote D1 migrations and deploys the Worker using `CLOUDFLARE_API_TOKEN`.
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).

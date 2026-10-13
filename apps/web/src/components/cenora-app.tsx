@@ -482,6 +482,17 @@ function App() {
               )}
             </div>
             <div className="header-actions">
+              {session.data?.club?.rankingEnabled && member.rankingEnabled !== false && (
+                <button
+                  className="ranking-trigger"
+                  aria-label="Ranking do clube"
+                  title="Ranking do clube"
+                  onClick={() => setRankingOpen(true)}
+                >
+                  <Trophy size={18} />
+                  <span>Conquistas</span>
+                </button>
+              )}
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
                 <span>Adicionar</span>

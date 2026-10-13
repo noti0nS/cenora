@@ -82,12 +82,16 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     ).toBe(200);
     await page.goto('/');
     // Ranking starts opted-out at the club level; the owner enables it in Ajustes.
+    await expect(page.getByRole('button', { name: 'Ranking do clube', exact: true })).toHaveCount(
+      0,
+    );
     await page.getByRole('button', { name: 'Perfil de Marina' }).click();
     await expect(page.getByRole('menuitem', { name: 'Ranking do clube' })).toHaveCount(0);
     await page.getByRole('menuitem', { name: 'Clubes e participantes' }).click();
     await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
     await page.getByRole('checkbox', { name: 'Ativar ranking e conquistas neste clube' }).check();
     await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Ranking do clube', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Abrir Uma boa sessão', exact: true }).click();
     const saved = page.waitForResponse(
       (r) => r.url().endsWith('/personal') && r.request().method() === 'PUT' && r.ok(),
@@ -135,7 +139,13 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
       ),
     ).toBeVisible();
     await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Ranking do clube', exact: true })).toHaveCount(
+      0,
+    );
     await page.reload();
+    await expect(page.getByRole('button', { name: 'Ranking do clube', exact: true })).toHaveCount(
+      0,
+    );
     await page.getByRole('button', { name: 'Perfil de Marina' }).click();
     await expect(page.getByRole('menuitem', { name: 'Ranking do clube' })).toHaveCount(0);
     await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
