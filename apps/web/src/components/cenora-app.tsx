@@ -366,7 +366,23 @@ function App() {
             Ir para os títulos
           </a>
           <header className="app-header">
-            <Wordmark />
+            <a
+              href="?kind=movie"
+              className="wordmark"
+              aria-label="Cenora — início (Filmes)"
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                navigate({ kind: 'movie', mine: false });
+                setSearch('');
+                setSearchOpen(false);
+                setStatus('');
+                setSort('recent');
+                window.scrollTo({ top: 0 });
+              }}
+            >
+              <Wordmark />
+            </a>
             <div className="kind-switch" role="tablist" aria-label="Tipo de título">
               {(['movie', 'tv'] as const).map((value) => (
                 <button

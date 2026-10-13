@@ -144,6 +144,27 @@ test('one shelf: switch between movies and shows, rate a movie, refresh, and bro
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(errors).toEqual([]);
 });
+test('Cenora logo returns to the movie home and clears shelf filters', async ({ page }) => {
+  await page.goto('/?kind=tv&view=mine');
+  await expect(page.getByRole('tab', { name: /Séries/ })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Buscar na estante' }).fill('inexistente');
+  await page.getByRole('link', { name: 'Cenora — início (Filmes)' }).click();
+
+  await expect(page).toHaveURL(/\?kind=movie$/);
+  await expect(page.getByRole('tab', { name: /Filmes/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('textbox', { name: 'Buscar na estante' })).toHaveValue('');
+  await expect(page.locator('.card')).toHaveCount(30);
+
+  await page.getByRole('tab', { name: /Séries/ }).click();
+  const logo = page.getByRole('link', { name: 'Cenora — início (Filmes)' });
+  await logo.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: /Filmes/ })).toHaveAttribute('aria-selected', 'true');
+  await page.reload();
+  await expect(page.getByRole('tab', { name: /Filmes/ })).toHaveAttribute('aria-selected', 'true');
+});
+
 test('rating dial works from the keyboard and can be cleared', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
