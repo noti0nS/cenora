@@ -31,7 +31,7 @@ async function headerFits(header: Locator) {
     .poll(() =>
       header.evaluate((element) => {
         const controls = Array.from(
-          element.querySelectorAll<HTMLElement>('.wordmark, button, .search.open input'),
+          element.querySelectorAll<HTMLElement>(':scope > .wordmark, button, .search.open input'),
         ).filter((control) => control.getBoundingClientRect().width > 0);
         const boxes = controls.map((control) => control.getBoundingClientRect());
         return boxes.every(
