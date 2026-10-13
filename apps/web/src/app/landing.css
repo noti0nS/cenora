@@ -7,6 +7,7 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 48px;
+  flex-wrap: wrap;
 }
 .access-card .access-brand-header .wordmark {
   margin: 0;
@@ -78,7 +79,7 @@
 }
 .landing-hero {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 36px;
   min-height: 700px;
@@ -565,7 +566,7 @@
 }
 .landing-episodes {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(36px, 1fr));
   width: 100%;
   gap: 5px;
 }
@@ -794,7 +795,7 @@
 }
 .landing-rating-demo {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: 130px minmax(0, 1fr);
   gap: 24px;
   padding-top: 16px;
 }
@@ -877,7 +878,7 @@
     left: 0;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .landing-nav {
     min-height: 85px;
     padding-inline: 22px;
@@ -986,7 +987,7 @@
     width: 100%;
   }
   .landing-rating-demo {
-    grid-template-columns: 85px 1fr;
+    grid-template-columns: 85px minmax(0, 1fr);
     gap: 16px;
   }
   .access-brand-header {
@@ -994,6 +995,26 @@
   }
   .access-back {
     font-size: 10px;
+  }
+}
+@media (max-width: 380px) {
+  .landing-preview-tabs {
+    flex-wrap: wrap;
+  }
+  .landing-shelf-top {
+    flex-wrap: wrap;
+  }
+  .landing-film-stack img {
+    width: 44%;
+    height: auto;
+    aspect-ratio: 2 / 3;
+  }
+  .landing-film-stack img:nth-child(2) {
+    left: 48%;
+  }
+  .access-brand-header .brand-artwork {
+    width: 96px;
+    height: auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {

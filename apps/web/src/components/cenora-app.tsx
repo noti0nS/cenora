@@ -396,47 +396,47 @@ function App() {
                 </button>
               ))}
             </div>
-            <div className="header-actions">
-              <div className={`search ${searchOpen || search ? 'open' : ''}`} role="search">
+            <div className={`search ${searchOpen || search ? 'open' : ''}`} role="search">
+              <button
+                className="icon-button"
+                aria-label="Buscar"
+                onClick={() => {
+                  setSearchOpen(true);
+                  searchInput.current?.focus();
+                }}
+              >
+                <Search size={19} />
+              </button>
+              <input
+                ref={searchInput}
+                aria-label="Buscar na estante"
+                tabIndex={searchOpen || search ? 0 : -1}
+                placeholder={kind === 'tv' ? 'Buscar séries' : 'Buscar filmes'}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onBlur={() => !search && setSearchOpen(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearch('');
+                    setSearchOpen(false);
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+              {search && (
                 <button
                   className="icon-button"
-                  aria-label="Buscar"
+                  aria-label="Limpar busca"
                   onClick={() => {
-                    setSearchOpen(true);
+                    setSearch('');
                     searchInput.current?.focus();
                   }}
                 >
-                  <Search size={19} />
+                  <X size={15} />
                 </button>
-                <input
-                  ref={searchInput}
-                  aria-label="Buscar na estante"
-                  tabIndex={searchOpen || search ? 0 : -1}
-                  placeholder={kind === 'tv' ? 'Buscar séries' : 'Buscar filmes'}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onBlur={() => !search && setSearchOpen(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setSearch('');
-                      setSearchOpen(false);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                />
-                {search && (
-                  <button
-                    className="icon-button"
-                    aria-label="Limpar busca"
-                    onClick={() => {
-                      setSearch('');
-                      searchInput.current?.focus();
-                    }}
-                  >
-                    <X size={15} />
-                  </button>
-                )}
-              </div>
+              )}
+            </div>
+            <div className="header-actions">
               <button
                 className="club-chip"
                 aria-label={`Clubes e participantes. Clube atual: ${session.data?.club?.name ?? ''}`}

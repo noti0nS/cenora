@@ -298,6 +298,10 @@ input[type='checkbox'] {
 }
 .dropdown {
   min-width: 232px;
+  max-width: min(calc(100vw - 24px), 360px);
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow: auto;
+  overflow-wrap: anywhere;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 13px;
@@ -316,6 +320,11 @@ input[type='checkbox'] {
   font-size: 14px;
   outline: none;
   cursor: pointer;
+}
+.menu-item svg,
+.button svg,
+.text-button svg {
+  flex-shrink: 0;
 }
 .menu-item[data-highlighted] {
   background: var(--hover);
@@ -600,7 +609,7 @@ input[type='checkbox'] {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  max-height: min(88svh, 960px);
+  max-height: min(88dvh, 960px);
   overflow: auto;
   overscroll-behavior: contain;
   width: min(calc(100% - 40px), 510px);
@@ -618,6 +627,19 @@ input[type='checkbox'] {
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 24px;
+}
+.modal-heading > div {
+  min-width: 0;
+}
+.modal-heading,
+.modal-description,
+.club-detail,
+.roster-name,
+.member-setting,
+.settings-block,
+.code-result,
+.access-intro {
+  overflow-wrap: anywhere;
 }
 .modal-heading h2 {
   font-size: 22px;
@@ -1121,6 +1143,7 @@ summary {
 .member-setting > span:nth-child(2) {
   font-size: 13px;
   flex: 1;
+  min-width: 0;
 }
 .member-setting small {
   display: block;
@@ -1280,9 +1303,6 @@ summary {
   }
   .access-card {
     width: 380px;
-  }
-  .wordmark {
-    margin-bottom: 50px;
   }
   .modal {
     border-radius: 17px;
@@ -1470,6 +1490,8 @@ summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .menu-club small {
   font-size: 10px;
@@ -1515,12 +1537,17 @@ summary {
 .club-option:hover:not(:disabled) {
   border-color: var(--accent);
 }
+.club-option > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .club-option small {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+  flex: none;
 }
 .scoped-banner {
   display: flex;
@@ -1533,6 +1560,13 @@ summary {
   background: var(--surface);
   font-size: 13px;
   color: var(--muted);
+  flex-wrap: wrap;
+}
+.scoped-banner > svg {
+  flex: none;
+}
+.scoped-banner > span {
+  flex: 1 1 200px;
 }
 .scoped-banner .text-button {
   margin-left: auto;
@@ -1693,10 +1727,30 @@ summary {
   }
   .roster-actions {
     margin-left: 39px;
-    width: 100%;
+    width: calc(100% - 39px);
+    flex-wrap: wrap;
   }
 }
 @media (max-width: 520px) {
+  input,
+  textarea {
+    font-size: 16px;
+  }
+  .modal.clubs-modal {
+    width: 100%;
+  }
+  .form-row {
+    flex-wrap: wrap;
+  }
+  .form-row > .field {
+    flex-basis: 120px;
+  }
+  .member-setting {
+    flex-wrap: wrap;
+  }
+  .member-setting > div {
+    flex-wrap: wrap;
+  }
   .club-chip {
     max-width: 120px;
     padding: 8px 10px;
