@@ -736,12 +736,100 @@ describe('private club on a real Worker + D1 runtime', () => {
     expect(await read('?kind=movie')).toEqual(['Filme da turma']);
     expect(await read('?kind=tv')).toEqual(['Série da turma']);
     expect((await read('')).sort()).toEqual(['Filme da turma', 'Série da turma']);
-    expect(await (await request('/media/counts')).json()).toEqual({ movie: 1, tv: 1 });
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 1, tv: 1, anime: 0 });
     const other = await createClub('Outro');
     expect(await (await request('/media/counts', 'GET', undefined, other.cookie)).json()).toEqual({
       movie: 0,
       tv: 0,
+      anime: 0,
     });
+  });
+  it('separates anime series while keeping anime movies in Filmes and preserving episode tracking', async () => {
+    const listId = (await lists())[0].id;
+    const add = async (title: string, kind: string, isAnime: boolean) => {
+      const response = await request('/media/manual', 'POST', { title, kind, isAnime, listId });
+      expect(response.status).toBe(201);
+      return (await response.json()) as any;
+    };
+    const anime = await add('Fullmetal', 'tv', true);
+    const movie = await add('Princesa Mononoke', 'movie', true);
+    await add('Dark', 'tv', false);
+    expect(anime.isAnime).toBe(true);
+    expect(movie.isAnime).toBe(false);
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 1, tv: 1, anime: 1 });
+    for (const [kind, title] of [
+      ['anime', 'Fullmetal'],
+      ['movie', 'Princesa Mononoke'],
+      ['tv', 'Dark'],
+    ]) {
+      const shelf = (await (await request(`/media?kind=${kind}`)).json()) as any;
+      expect(shelf.items.map((item: any) => item.title)).toEqual([title]);
+      const spin = (await (await request(`/media/spin?kind=${kind}`)).json()) as any;
+      expect(spin.items.map((item: any) => item.title)).toEqual([title]);
+    }
+    expect(
+      (
+        await request(`/media/${anime.id}/personal`, 'PUT', {
+          status: 'watching',
+          rating: null,
+          season: 1,
+          episode: 3,
+          revision: 0,
+        })
+      ).status,
+    ).toBe(200);
+    const mine = (await (
+      await request('/media?kind=anime&mine=true&status=watching')
+    ).json()) as any;
+    expect(mine.items[0]).toMatchObject({
+      kind: 'tv',
+      isAnime: true,
+      personal: { season: 1, episode: 3 },
+    });
+    const other = await createClub('Outro clube');
+    const outside = (await (
+      await request('/media?kind=anime', 'GET', undefined, other.cookie)
+    ).json()) as any;
+    expect(outside.items).toEqual([]);
+    expect((await add('Fullmetal', 'tv', false)).id).toBe(anime.id);
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 1, tv: 1, anime: 1 });
+  });
+  it('classifies catalog anime series, never anime films, and backfills existing imported anime', async () => {
+    const listId = (await lists())[0].id;
+    for (const kind of ['tv', 'movie']) {
+      await db
+        .prepare('INSERT INTO provider_cache (key,payload,expires_at) VALUES (?,?,?)')
+        .bind(
+          `details:${kind}:123`,
+          JSON.stringify({
+            name: 'Anime do catálogo',
+            title: 'Filme de anime',
+            genres: [{ id: 16, name: 'Animação' }],
+            origin_country: ['JP'],
+            credits: { cast: [] },
+          }),
+          Date.now() + 86400000,
+        )
+        .run();
+      const response = await request('/media/catalog', 'POST', { tmdbId: 123, kind, listId });
+      expect(response.status).toBe(201);
+      expect((await response.json()) as any).toMatchObject({ isAnime: kind === 'tv' });
+    }
+    const imported = await request('/club/import', 'POST', {
+      entries: [
+        { title: 'Anime antigo', kind: 'tv', category: 'Animes' },
+        { title: 'Filme antigo', kind: 'movie', category: 'Animes' },
+      ],
+    });
+    expect(imported.status).toBe(200);
+    await db.prepare('UPDATE media SET is_anime=0').run();
+    const backfill = (await readFile('migrations/0010_anime_shelf.sql', 'utf8'))
+      .split(';')
+      .slice(1)
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    await db.batch(backfill.map((statement) => db.prepare(statement)));
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 2, tv: 0, anime: 2 });
   });
   it('spins only unfinished titles of the requested kind from the caller club', async () => {
     const open = await manual('movie', 'Ainda não vimos');
@@ -907,7 +995,7 @@ describe('private club on a real Worker + D1 runtime', () => {
         ).toBe(0);
       }
     }
-    expect(await (await request('/media/counts')).json()).toEqual({ movie: 0, tv: 0 });
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 0, tv: 0, anime: 0 });
   });
   it('restricts title removal to the club owner and the active club', async () => {
     const title = await manual();
@@ -961,6 +1049,7 @@ describe('private club on a real Worker + D1 runtime', () => {
     const rows = (await db.prepare('SELECT COUNT(*) count FROM media').first()) as any;
     expect(rows.count).toBe(40);
     expect((await lists()).map((l) => l.count)).toEqual([29, 3, 8]);
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 29, tv: 8, anime: 3 });
     const gallery = (await (await request(`/media?list=${(await lists())[0].id}`)).json()) as any;
     expect(gallery.items[0].title).toBe('Seven - os 7 pecados capitais');
     expect(

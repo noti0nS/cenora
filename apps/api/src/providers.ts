@@ -1,6 +1,10 @@
 import type { CatalogResult, Person, Provider, Season } from '@cenora/shared';
 import { ApiError, type Env } from './lib';
 type Json = Record<string, any>;
+const animeSeries = (kind: string, r: Json) =>
+  kind === 'tv' &&
+  (r.genre_ids?.includes(16) || r.genres?.some((g: Json) => g.id === 16)) &&
+  r.origin_country?.includes('JP');
 const image = (path: string | null | undefined, size = 'w342') =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 async function cached(env: Env, key: string, seconds: number, load: () => Promise<Json>) {
@@ -64,14 +68,15 @@ export async function searchCatalog(
   for (const r of items) {
     const kind = r.media_type as 'movie' | 'tv';
     const existing = await env.DB.prepare(
-      'SELECT id FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
+      'SELECT id,is_anime FROM media WHERE tmdb_id=? AND kind=? AND club_id=?',
     )
       .bind(r.id, kind, clubId)
-      .first<{ id: string }>();
+      .first<{ id: string; is_anime: number }>();
     results.push({
       tmdbId: r.id,
       title: r.title || r.name,
       kind,
+      isAnime: existing ? existing.is_anime === 1 : Boolean(animeSeries(kind, r)),
       year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
       posterUrl: image(r.poster_path),
       synopsis: r.overview || '',
@@ -92,6 +97,7 @@ export async function catalogDetails(env: Env, kind: 'movie' | 'tv', tmdbId: num
   const r = result.data;
   return {
     title: r.title || r.name,
+    isAnime: Boolean(animeSeries(kind, r)),
     year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
     synopsis: r.overview || '',
     posterUrl: image(r.poster_path, 'w500'),

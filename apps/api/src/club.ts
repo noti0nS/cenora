@@ -301,6 +301,8 @@ clubRoutes.post('/import', async (c) => {
   const clubId = c.get('club').id;
   const ids: string[] = [];
   for (const entry of input.entries) {
+    const isAnime =
+      entry.kind === 'tv' && ['anime', 'animes'].includes(normalizeName(entry.category));
     let list = await c.env.DB.prepare('SELECT id FROM lists WHERE normalized_name=? AND club_id=?')
       .bind(normalizeName(entry.category), clubId)
       .first<{ id: string }>();
@@ -335,6 +337,7 @@ clubRoutes.post('/import', async (c) => {
       mediaId = await registerCatalog(c, {
         tmdbId: entry.tmdbId,
         kind: entry.kind,
+        isAnime: isAnime ? true : undefined,
         listId: list.id,
       });
     } else {
@@ -360,6 +363,10 @@ clubRoutes.post('/import', async (c) => {
       mediaId = media.id;
       await attach(c, list.id, mediaId);
     }
+    if (isAnime)
+      await c.env.DB.prepare("UPDATE media SET is_anime=1 WHERE id=? AND club_id=? AND kind='tv'")
+        .bind(mediaId, clubId)
+        .run();
     await c.env.DB.prepare(
       'INSERT OR IGNORE INTO import_aliases (club_id,source_key,variant_key,media_id) VALUES (?,?,?,?)',
     )

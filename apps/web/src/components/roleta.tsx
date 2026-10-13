@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import * as m from 'motion/react-m';
 import { Dices, Star } from 'lucide-react';
-import type { Media } from '@cenora/shared';
+import type { Media, ShelfKind } from '@cenora/shared';
 import { api, errorMessage, score } from '@/lib/api';
 import { Modal, Button } from './ui';
 import { Poster } from './poster';
@@ -22,7 +22,7 @@ function RoletaBody({
   mine,
   onPick,
 }: {
-  kind: 'movie' | 'tv';
+  kind: ShelfKind;
   mine: boolean;
   onPick: (id: string) => void;
 }) {
@@ -134,7 +134,7 @@ export function Roleta({
 }: {
   open: boolean;
   onClose: () => void;
-  kind: 'movie' | 'tv';
+  kind: ShelfKind;
   mine: boolean;
   onPick: (id: string) => void;
 }) {
@@ -145,8 +145,8 @@ export function Roleta({
       title="Roleta"
       description={
         mine
-          ? `Sorteia ${kind === 'tv' ? 'uma série' : 'um filme'} da sua fila.`
-          : `Sorteia ${kind === 'tv' ? 'uma série' : 'um filme'} que o grupo ainda não terminou.`
+          ? `Sorteia ${kind === 'anime' ? 'um anime' : kind === 'tv' ? 'uma série' : 'um filme'} da sua fila.`
+          : `Sorteia ${kind === 'anime' ? 'um anime' : kind === 'tv' ? 'uma série' : 'um filme'} que o grupo ainda não terminou.`
       }
       className="roleta-modal"
     >

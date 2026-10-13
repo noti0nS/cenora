@@ -1,6 +1,6 @@
 # Cenora
 
-Cenora is a private Portuguese shelf of movies and shows for friends. Enter with an email code or with a club invite; the shelf stays the same. Anyone can create a club in the app and receive a unique private invite code. There is one screen: a **Filmes / Séries** switch over a poster shelf. A movie opens a _session_ (status plus a draggable half-point rating dial, with friends' ratings on a shared scale). A show opens a _tracker_ (progress ring, season rail, tappable episodes, with separate personal and group progress). Changes save automatically. Custom lists are no longer shown; each club keeps a hidden default list for the API.
+Cenora is a private Portuguese shelf of movies and shows for friends. Enter with an email code or with a club invite; the shelf stays the same. Anyone can create a club in the app and receive a unique private invite code. There is one screen: a **Filmes / Séries / Animes** switch over a poster shelf. Anime series have their own shelf; anime movies stay in **Filmes**. A movie opens a _session_ (status plus a draggable half-point rating dial, with friends' ratings on a shared scale). A show or anime series opens a _tracker_ (progress ring, season rail, tappable episodes, with separate personal and group progress). Changes save automatically. Custom lists are no longer shown; each club keeps a hidden default list for the API.
 
 ## Run locally
 

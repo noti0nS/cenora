@@ -105,12 +105,25 @@ test('one shelf: switch between movies and shows, rate a movie, refresh, and bro
   await mkdir('artifacts', { recursive: true });
   await page.screenshot({ path: 'artifacts/shelf-movies.png', animations: 'disabled' });
   await page.getByRole('tab', { name: /Séries/ }).click();
-  await expect(page.locator('.card')).toHaveCount(11);
-  await expect(page.locator('.card.kind-tv')).toHaveCount(11);
+  await expect(page.locator('.card')).toHaveCount(8);
+  await expect(page.locator('.card.kind-tv')).toHaveCount(8);
   await page.waitForTimeout(700);
   await page.screenshot({ path: 'artifacts/shelf-shows.png', animations: 'disabled' });
+  await page.getByRole('tab', { name: /Animes/ }).click();
+  await expect(page.locator('.card')).toHaveCount(3);
+  await expect(
+    page.getByRole('button', { name: 'Abrir Princesa Mononoke', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Abrir Fullmetal Alquimist Brotherhood', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('tab', { name: /Animes/ })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: /Filmes/ }).click();
   await expect(page.locator('.card')).toHaveCount(30);
+  await expect(
+    page.getByRole('button', { name: 'Abrir Princesa Mononoke', exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'A Origem' })).toBeVisible();
   await expect(page.getByRole('slider')).toHaveCount(0);
@@ -262,7 +275,7 @@ test('catalog-unavailable manual show keeps a simple counter that survives a ref
 });
 test('owner can cancel or confirm removing movies and shows from the shelf', async ({ page }) => {
   await page.goto('/');
-  for (const kind of ['Filme', 'Série']) {
+  for (const kind of ['Filme', 'Série', 'Anime']) {
     const title = `${kind} para remover`;
     await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
     await page.getByRole('button', { name: kind, exact: true }).click();
@@ -270,6 +283,7 @@ test('owner can cancel or confirm removing movies and shows from the shelf', asy
     await page.getByRole('button', { name: 'Guardar na estante' }).click();
     const detail = page.getByRole('dialog', { name: title, exact: true });
     await expect(detail).toBeVisible();
+    await expect(detail.locator(kind === 'Filme' ? '.session' : '.tracker')).toBeVisible();
     const detailUrl = page.url();
     await detail.getByRole('button', { name: 'Remover da estante' }).click();
     const confirmation = page.getByRole('dialog', { name: 'Remover da estante?' });
@@ -293,7 +307,9 @@ test('owner can cancel or confirm removing movies and shows from the shelf', asy
     await expect(page.getByRole('button', { name: `Abrir ${title}`, exact: true })).toHaveCount(0);
     await page.reload();
     await expect(
-      page.getByRole('tab', { name: kind === 'Filme' ? /Filmes/ : /Séries/ }),
+      page.getByRole('tab', {
+        name: kind === 'Anime' ? /Animes/ : kind === 'Filme' ? /Filmes/ : /Séries/,
+      }),
     ).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('button', { name: `Abrir ${title}`, exact: true })).toHaveCount(0);
   }

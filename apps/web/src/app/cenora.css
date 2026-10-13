@@ -78,10 +78,12 @@ h3,
   );
   opacity: 0;
 }
-.app-shell[data-kind='tv']::before {
+.app-shell[data-kind='tv']::before,
+.app-shell[data-kind='anime']::before {
   opacity: 0;
 }
-.app-shell[data-kind='tv']::after {
+.app-shell[data-kind='tv']::after,
+.app-shell[data-kind='anime']::after {
   opacity: 1;
 }
 .app-header {
@@ -321,7 +323,8 @@ h3,
   margin: 0;
   padding: 0;
 }
-[data-kind='tv'] .shelf {
+[data-kind='tv'] .shelf,
+[data-kind='anime'] .shelf {
   padding-top: 12px;
   gap: 40px 24px;
 }
@@ -1182,7 +1185,7 @@ h3,
     grid-row: 2;
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .kind-switch button {
     text-align: center;
@@ -1197,12 +1200,21 @@ h3,
   }
 }
 @media (max-width: 760px) {
+  .kind-switch button {
+    padding-inline: 6px;
+  }
   .segmented-pill button {
     font-size: 12px;
     padding-inline: 2px;
   }
   .kind-label {
     justify-content: center;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .kind-label svg {
+    width: 14px;
+    height: 14px;
   }
   .button.add-button span {
     display: none;

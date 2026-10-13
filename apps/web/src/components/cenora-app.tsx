@@ -25,6 +25,7 @@ import {
   Check,
   Clapperboard,
   Tv,
+  Sparkles,
   Moon,
   Sun,
   LogOut,
@@ -39,7 +40,7 @@ import {
   Users,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
-import type { Media, Watchlist, SessionState, Member, Club } from '@cenora/shared';
+import type { Media, Watchlist, SessionState, Member, Club, ShelfKind } from '@cenora/shared';
 import { api, json, errorMessage, RequestError, score } from '@/lib/api';
 import { Dropdown, MenuItem, Separator, Button } from './ui';
 import { Access } from './access';
@@ -53,7 +54,7 @@ import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
 import { Avatar } from './avatar';
 
-type Kind = 'movie' | 'tv';
+type Kind = ShelfKind;
 type Page = { items: Media[]; nextOffset: number | null };
 const kindCopy: Record<
   Kind,
@@ -80,6 +81,17 @@ const kindCopy: Record<
           ? '1 série na estante'
           : `${n} séries na estante`,
     empty: 'Nenhuma série por aqui ainda.',
+  },
+  anime: {
+    tab: 'Animes',
+    title: 'Um episódio, um novo mundo.',
+    line: (n) =>
+      n === 0
+        ? 'Nenhum anime na estante'
+        : n === 1
+          ? '1 anime na estante'
+          : `${n} animes na estante`,
+    empty: 'Nenhum anime por aqui ainda.',
   },
 };
 const chipsFor = (mine: boolean) =>
@@ -157,7 +169,8 @@ function App() {
     const read = () => {
       const url = new URL(window.location.href);
       const saved = localStorage.getItem('watchlist:kind');
-      setKind((url.searchParams.get('kind') || saved) === 'tv' ? 'tv' : 'movie');
+      const selected = url.searchParams.get('kind') || saved;
+      setKind(selected === 'tv' || selected === 'anime' ? selected : 'movie');
       setMine(url.searchParams.get('view') === 'mine');
       setMediaId(url.searchParams.get('media'));
       // Um link de convite aberto com clube ativo abre a tela de convite.
@@ -384,7 +397,7 @@ function App() {
               <Wordmark />
             </a>
             <div className="kind-switch" role="tablist" aria-label="Tipo de título">
-              {(['movie', 'tv'] as const).map((value) => (
+              {(['movie', 'tv', 'anime'] as const).map((value) => (
                 <button
                   key={value}
                   role="tab"
@@ -405,7 +418,13 @@ function App() {
                     />
                   )}
                   <span className="kind-label">
-                    {value === 'movie' ? <Clapperboard size={16} /> : <Tv size={16} />}
+                    {value === 'movie' ? (
+                      <Clapperboard size={16} />
+                    ) : value === 'anime' ? (
+                      <Sparkles size={16} />
+                    ) : (
+                      <Tv size={16} />
+                    )}
                     {kindCopy[value].tab}
                     <small>{counts.data?.[value] ?? ''}</small>
                   </span>
@@ -427,7 +446,13 @@ function App() {
                 ref={searchInput}
                 aria-label="Buscar na estante"
                 tabIndex={searchOpen || search ? 0 : -1}
-                placeholder={kind === 'tv' ? 'Buscar séries' : 'Buscar filmes'}
+                placeholder={
+                  kind === 'anime'
+                    ? 'Buscar animes'
+                    : kind === 'tv'
+                      ? 'Buscar séries'
+                      : 'Buscar filmes'
+                }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onBlur={() => !search && setSearchOpen(false)}
@@ -669,9 +694,11 @@ function App() {
                 <p>
                   {filtered || mine
                     ? 'Experimente outra busca ou limpe os filtros.'
-                    : kind === 'tv'
-                      ? 'Adicione a primeira série e acompanhe episódio por episódio.'
-                      : 'Adicione o primeiro filme e dê uma nota depois da sessão.'}
+                    : kind === 'anime'
+                      ? 'Adicione o primeiro anime e acompanhe episódio por episódio. Filmes de anime ficam em Filmes.'
+                      : kind === 'tv'
+                        ? 'Adicione a primeira série e acompanhe episódio por episódio.'
+                        : 'Adicione o primeiro filme e dê uma nota depois da sessão.'}
                 </p>
                 {filtered || mine ? (
                   <Button
@@ -688,7 +715,11 @@ function App() {
                   <>
                     <Button onClick={() => setAdd(true)}>
                       <Plus size={16} />
-                      {kind === 'tv' ? 'Adicionar uma série' : 'Adicionar um filme'}
+                      {kind === 'anime'
+                        ? 'Adicionar um anime'
+                        : kind === 'tv'
+                          ? 'Adicionar uma série'
+                          : 'Adicionar um filme'}
                     </Button>
                     {member.role === 'owner' && (
                       <button className="text-button" onClick={() => setImporting(true)}>

@@ -20,6 +20,7 @@ export function toMedia(r: Row): Media {
     id: r.id,
     title: r.title,
     kind: r.kind,
+    isAnime: r.kind === 'tv' && r.is_anime === 1,
     year: r.year,
     synopsis: r.synopsis,
     posterUrl: r.poster_url,
@@ -89,7 +90,7 @@ export async function registerCatalog(c: Context<AppEnv>, input: z.infer<typeof 
     const r = await catalogDetails(c.env, input.kind, input.tmdbId),
       mediaId = id();
     await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,tmdb_id,tmdb_rating,metadata,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,tmdb_id,tmdb_rating,metadata,created_by,is_anime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
     )
       .bind(
         mediaId,
@@ -104,6 +105,7 @@ export async function registerCatalog(c: Context<AppEnv>, input: z.infer<typeof 
         r.tmdbRating,
         JSON.stringify(r),
         c.get('member').id,
+        input.kind === 'tv' && (input.isAnime ?? r.isAnime) ? 1 : 0,
       )
       .run();
     existing = await c.env.DB.prepare(
@@ -132,9 +134,13 @@ mediaRoutes.get('/', async (c) => {
     filters.push('EXISTS (SELECT 1 FROM list_items li WHERE li.media_id=m.id AND li.list_id=?)');
     args.push(list);
   }
-  if (kind === 'movie' || kind === 'tv') {
+  if (kind === 'movie' || kind === 'tv' || kind === 'anime') {
     filters.push('m.kind=?');
-    args.push(kind);
+    args.push(kind === 'anime' ? 'tv' : kind);
+    if (kind !== 'movie') {
+      filters.push('m.is_anime=?');
+      args.push(kind === 'anime' ? 1 : 0);
+    }
   }
   if (mine) filters.push('p.member_id IS NOT NULL');
   if (query) {
@@ -173,11 +179,11 @@ mediaRoutes.get('/', async (c) => {
 });
 mediaRoutes.get('/counts', async (c) => {
   const rows = await c.env.DB.prepare(
-    'SELECT kind,COUNT(*) count FROM media WHERE club_id=? GROUP BY kind',
+    "SELECT CASE WHEN is_anime=1 THEN 'anime' ELSE kind END kind,COUNT(*) count FROM media WHERE club_id=? GROUP BY CASE WHEN is_anime=1 THEN 'anime' ELSE kind END",
   )
     .bind(c.get('club').id)
-    .all<{ kind: 'movie' | 'tv'; count: number }>();
-  const counts = { movie: 0, tv: 0 };
+    .all<{ kind: 'movie' | 'tv' | 'anime'; count: number }>();
+  const counts = { movie: 0, tv: 0, anime: 0 };
   for (const row of rows.results) counts[row.kind] = row.count;
   return c.json(counts);
 });
@@ -202,12 +208,13 @@ mediaRoutes.get('/poster', async (c) => {
   }
 });
 mediaRoutes.get('/spin', async (c) => {
-  const kind = c.req.query('kind') === 'tv' ? 'tv' : 'movie';
+  const shelf = c.req.query('kind');
+  const kind = shelf === 'tv' || shelf === 'anime' ? 'tv' : 'movie';
   const mine = c.req.query('mine') === 'true';
   const result = await c.env.DB.prepare(
-    `${mediaSelect} WHERE m.club_id=? AND m.kind=? AND m.group_status<>'watched' AND (p.status IS NULL OR p.status IN ('want','watching'))${mine ? ' AND p.member_id IS NOT NULL' : ''} ORDER BY RANDOM() LIMIT 12`,
+    `${mediaSelect} WHERE m.club_id=? AND m.kind=? AND m.is_anime=? AND m.group_status<>'watched' AND (p.status IS NULL OR p.status IN ('want','watching'))${mine ? ' AND p.member_id IS NOT NULL' : ''} ORDER BY RANDOM() LIMIT 12`,
   )
-    .bind(c.get('club').id, c.get('member').id, c.get('club').id, kind)
+    .bind(c.get('club').id, c.get('member').id, c.get('club').id, kind, shelf === 'anime' ? 1 : 0)
     .all<Row>();
   return c.json({ items: result.results.map(toMedia) });
 });
@@ -240,7 +247,7 @@ mediaRoutes.post('/manual', async (c) => {
   const mediaId = existing?.id || id();
   if (!existing)
     await c.env.DB.prepare(
-      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,created_by) VALUES (?,?,?,?,?,?,?,?,?)',
+      'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,synopsis,poster_url,created_by,is_anime) VALUES (?,?,?,?,?,?,?,?,?,?)',
     )
       .bind(
         mediaId,
@@ -252,6 +259,7 @@ mediaRoutes.post('/manual', async (c) => {
         input.synopsis,
         input.posterUrl ?? null,
         c.get('member').id,
+        input.kind === 'tv' && input.isAnime ? 1 : 0,
       )
       .run();
   const registered =
@@ -264,11 +272,14 @@ mediaRoutes.post('/manual', async (c) => {
   if (!registered)
     throw new ApiError(503, 'REGISTER_FAILED', 'Não foi possível guardar este título.');
   await attach(c, input.listId, registered.id);
-  return c.json({ id: registered.id }, 201);
+  const { media } = await getMedia(c, registered.id);
+  return c.json({ id: registered.id, isAnime: media.isAnime }, 201);
 });
-mediaRoutes.post('/catalog', async (c) =>
-  c.json({ id: await registerCatalog(c, await body(c, catalogSchema)) }, 201),
-);
+mediaRoutes.post('/catalog', async (c) => {
+  const mediaId = await registerCatalog(c, await body(c, catalogSchema));
+  const { media } = await getMedia(c, mediaId);
+  return c.json({ id: mediaId, isAnime: media.isAnime }, 201);
+});
 mediaRoutes.get('/:id', async (c) => {
   const { row, media } = await getMedia(c, c.req.param('id'));
   let metadata: Row = {};
@@ -383,7 +394,7 @@ mediaRoutes.patch('/:id/manual', async (c) => {
   const input = await body(
     c,
     manualMediaSchema
-      .omit({ listId: true, kind: true })
+      .omit({ listId: true, kind: true, isAnime: true })
       .extend({ revision: z.number().int().nonnegative() }),
   );
   const { media } = await getMedia(c, c.req.param('id'));
@@ -438,7 +449,7 @@ mediaRoutes.post('/:id/link', async (c) => {
     );
   const d = await catalogDetails(c.env, input.kind, input.tmdbId);
   const result = await c.env.DB.prepare(
-    'UPDATE media SET tmdb_id=?,title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,tmdb_rating=?,metadata=?,revision=revision+1 WHERE id=? AND revision=? AND club_id=? AND tmdb_id IS NULL',
+    'UPDATE media SET tmdb_id=?,title=?,normalized_title=?,year=?,synopsis=?,poster_url=?,tmdb_rating=?,metadata=?,is_anime=?,revision=revision+1 WHERE id=? AND revision=? AND club_id=? AND tmdb_id IS NULL',
   )
     .bind(
       input.tmdbId,
@@ -449,6 +460,7 @@ mediaRoutes.post('/:id/link', async (c) => {
       d.posterUrl,
       d.tmdbRating,
       JSON.stringify(d),
+      media.kind === 'tv' && (media.isAnime || d.isAnime) ? 1 : 0,
       media.id,
       input.revision,
       c.get('club').id,

@@ -5,6 +5,7 @@ export const personalStatuses = ['want', 'watching', 'watched', 'dropped'] as co
 export const groupStatuses = ['planned', 'watching', 'watched'] as const;
 export type PersonalStatus = (typeof personalStatuses)[number];
 export type GroupStatus = (typeof groupStatuses)[number];
+export type ShelfKind = 'movie' | 'tv' | 'anime';
 export const personalLabels: Record<PersonalStatus, string> = {
   want: 'Quero assistir',
   watching: 'Assistindo',
@@ -79,6 +80,7 @@ export const listSchema = z.object({
 export const manualMediaSchema = z.object({
   title: z.string().trim().min(1).max(200),
   kind: z.enum(['movie', 'tv']),
+  isAnime: z.boolean().optional(),
   year: z.number().int().min(1888).max(2100).nullable().optional(),
   synopsis: z.string().max(4000).default(''),
   posterUrl: z
@@ -107,6 +109,7 @@ export const groupSchema = z.object({
 export const catalogSchema = z.object({
   tmdbId: z.number().int().positive(),
   kind: z.enum(['movie', 'tv']),
+  isAnime: z.boolean().optional(),
   listId: z.string().min(1).max(100),
 });
 export interface Member {
@@ -144,6 +147,7 @@ export interface Media {
   id: string;
   title: string;
   kind: 'movie' | 'tv';
+  isAnime: boolean;
   year: number | null;
   synopsis: string;
   posterUrl: string | null;
@@ -195,6 +199,7 @@ export interface CatalogResult {
   tmdbId: number;
   title: string;
   kind: 'movie' | 'tv';
+  isAnime: boolean;
   year: number | null;
   posterUrl: string | null;
   synopsis: string;

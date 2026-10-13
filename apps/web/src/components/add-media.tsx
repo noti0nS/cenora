@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CatalogPage, CatalogResult } from '@cenora/shared';
+import type { CatalogPage, CatalogResult, ShelfKind } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Modal, Field, Button, Segmented } from './ui';
 import { Poster } from './poster';
@@ -17,7 +17,7 @@ export function CatalogSearch({
   initial?: string;
   onSelect: (result: CatalogResult) => Promise<void> | void;
   catalogAvailable: boolean;
-  kind?: 'movie' | 'tv';
+  kind?: ShelfKind;
 }) {
   const [text, setText] = useState(initial),
     [q, setQ] = useState(''),
@@ -45,7 +45,9 @@ export function CatalogSearch({
       setBusy(null);
     }
   };
-  const results = (search.data?.results || []).filter((r) => !kind || r.kind === kind);
+  const results = (search.data?.results || []).filter(
+    (r) => !kind || r.kind === (kind === 'anime' ? 'tv' : kind),
+  );
   return (
     <div className="catalog-search">
       <div className="search-input">
@@ -55,11 +57,13 @@ export function CatalogSearch({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
-            kind === 'tv'
-              ? 'Busque uma série ou anime'
-              : kind === 'movie'
-                ? 'Busque um filme'
-                : 'Busque um filme, anime ou série'
+            kind === 'anime'
+              ? 'Busque um anime'
+              : kind === 'tv'
+                ? 'Busque uma série ou anime'
+                : kind === 'movie'
+                  ? 'Busque um filme'
+                  : 'Busque um filme, anime ou série'
           }
           aria-label="Buscar no catálogo"
         />
@@ -94,7 +98,8 @@ export function CatalogSearch({
                 <span>
                   <strong>{r.title}</strong>
                   <small>
-                    {r.year || 'Sem data'} · {r.kind === 'tv' ? 'Série' : 'Filme'}
+                    {r.year || 'Sem data'} ·{' '}
+                    {r.isAnime ? 'Anime' : r.kind === 'tv' ? 'Série' : 'Filme'}
                     {r.existingId ? ' · Já no clube' : ''}
                   </small>
                 </span>
@@ -139,15 +144,15 @@ export function AddMedia({
 }: {
   open: boolean;
   onClose: () => void;
-  defaultKind: 'movie' | 'tv';
+  defaultKind: ShelfKind;
   ensureList: () => Promise<string>;
   catalogAvailable: boolean;
-  onAdded: (id: string, kind: 'movie' | 'tv') => void;
+  onAdded: (id: string, kind: ShelfKind) => void;
 }) {
   const qc = useQueryClient();
   const [manual, setManual] = useState(false),
     [title, setTitle] = useState(''),
-    [kind, setKind] = useState<'movie' | 'tv'>(defaultKind),
+    [kind, setKind] = useState<ShelfKind>(defaultKind),
     [year, setYear] = useState(''),
     [synopsis, setSynopsis] = useState(''),
     [poster, setPoster] = useState(''),
@@ -162,27 +167,38 @@ export function AddMedia({
       setPoster('');
     }
   }, [open, defaultKind, catalogAvailable]);
-  const added = async (id: string, addedKind: 'movie' | 'tv') => {
+  const added = async (id: string, addedKind: ShelfKind) => {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['media'] }),
       qc.invalidateQueries({ queryKey: ['counts'] }),
       qc.invalidateQueries({ queryKey: ['lists'] }),
     ]);
-    toast.success(addedKind === 'tv' ? 'Série na estante.' : 'Filme na estante.');
+    toast.success(
+      addedKind === 'anime'
+        ? 'Anime na estante.'
+        : addedKind === 'tv'
+          ? 'Série na estante.'
+          : 'Filme na estante.',
+    );
     onAdded(id, addedKind);
   };
   const select = async (r: CatalogResult) => {
     setBusy(true);
     try {
       if (r.existingId) {
-        await added(r.existingId, r.kind);
+        await added(r.existingId, r.isAnime ? 'anime' : r.kind);
         return;
       }
-      const result = await api<{ id: string }>(
+      const result = await api<{ id: string; isAnime: boolean }>(
         '/media/catalog',
-        json('POST', { tmdbId: r.tmdbId, kind: r.kind, listId: await ensureList() }),
+        json('POST', {
+          tmdbId: r.tmdbId,
+          kind: r.kind,
+          isAnime: kind === 'anime' || r.isAnime ? true : undefined,
+          listId: await ensureList(),
+        }),
       );
-      await added(result.id, r.kind);
+      await added(result.id, result.isAnime ? 'anime' : r.kind);
     } finally {
       setBusy(false);
     }
@@ -191,18 +207,19 @@ export function AddMedia({
     e.preventDefault();
     setBusy(true);
     try {
-      const result = await api<{ id: string }>(
+      const result = await api<{ id: string; isAnime: boolean }>(
         '/media/manual',
         json('POST', {
           title,
-          kind,
+          kind: kind === 'anime' ? 'tv' : kind,
+          isAnime: kind === 'anime',
           year: year ? Number(year) : null,
           synopsis,
           posterUrl: poster || null,
           listId: await ensureList(),
         }),
       );
-      await added(result.id, kind);
+      await added(result.id, result.isAnime ? 'anime' : kind === 'anime' ? 'tv' : kind);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -214,7 +231,7 @@ export function AddMedia({
       open={open}
       onClose={busy ? () => {} : onClose}
       title="Adicionar à estante"
-      description="Encontre um filme ou uma série para guardar."
+      description="Encontre um filme, uma série ou um anime para guardar. Filmes de anime ficam em Filmes."
       className="add-modal"
     >
       <Segmented
@@ -223,6 +240,7 @@ export function AddMedia({
         options={[
           { value: 'movie', label: 'Filme' },
           { value: 'tv', label: 'Série' },
+          { value: 'anime', label: 'Anime' },
         ]}
         onChange={setKind}
       />

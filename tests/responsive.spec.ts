@@ -111,6 +111,8 @@ for (const width of [320, 360, 390, 520, 600, 760, 768, 840, 900, 1024, 1100, 11
     await headerFits(header);
     await fits(page.locator('.toolbar'));
     await fits(page.locator('.toolbar-end'));
+    await page.getByRole('tab', { name: /Animes/ }).click();
+    await headerFits(header);
     await page.getByRole('tab', { name: /Séries/ }).click();
     await headerFits(header);
     await page.getByRole('button', { name: 'Buscar', exact: true }).click();
