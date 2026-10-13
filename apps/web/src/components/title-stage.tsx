@@ -88,11 +88,8 @@ export function TitleStage({
                     <div className="stage-grid">
                       <aside className="stage-poster">
                         {shown && (
-                          <Poster
-                            media={shown}
-                            layoutId={`poster-${id}`}
-                            className="stage-poster-art"
-                          />
+                          // Keep the stage independent of shelf reordering after tracking saves.
+                          <Poster media={shown} className="stage-poster-art" />
                         )}
                       </aside>
                       <div className="stage-main">

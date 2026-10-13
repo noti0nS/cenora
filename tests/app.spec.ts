@@ -91,6 +91,51 @@ const savedAs = (page: Page, fragment: string) =>
       (r.request().postData() || '').includes(fragment) &&
       r.ok(),
   );
+test('movie poster stays in place while session status changes and autosaves', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Abrir A Origem', exact: true }).click();
+  const poster = page.locator('.stage-poster-art');
+  await expect(page.getByRole('region', { name: 'Sua sessão' })).toBeVisible();
+  await page.waitForTimeout(1000);
+  const original = (await poster.boundingBox())!;
+
+  for (const [label, status] of [
+    ['Assistindo', 'watching'],
+    ['Já vi', 'watched'],
+    ['Abandonei', 'dropped'],
+    ['Quero ver', 'want'],
+  ]) {
+    const saved = savedAs(page, `"status":"${status}"`);
+    const samples = poster.evaluate(
+      (element) =>
+        new Promise<{ x: number; y: number; width: number; opacity: number }[]>((resolve) => {
+          const frames: { x: number; y: number; width: number; opacity: number }[] = [];
+          const start = performance.now();
+          const sample = () => {
+            const box = element.getBoundingClientRect();
+            frames.push({
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              opacity: Number(getComputedStyle(element).opacity),
+            });
+            if (performance.now() - start < 1800) requestAnimationFrame(sample);
+            else resolve(frames);
+          };
+          sample();
+        }),
+    );
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await saved;
+    for (const frame of await samples) {
+      expect(Math.abs(frame.x - original.x)).toBeLessThan(1);
+      expect(Math.abs(frame.y - original.y)).toBeLessThan(1);
+      expect(Math.abs(frame.width - original.width)).toBeLessThan(1);
+      expect(frame.opacity).toBe(1);
+    }
+  }
+});
+
 test('one shelf: switch between movies and shows, rate a movie, refresh, and browser Back', async ({
   page,
 }) => {
