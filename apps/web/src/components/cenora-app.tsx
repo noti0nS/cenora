@@ -51,6 +51,7 @@ import { SettingsDialog } from './settings';
 import { ClubsDialog } from './clubs-panel';
 import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
+import { Avatar } from './avatar';
 
 type Kind = 'movie' | 'tv';
 type Page = { items: Media[]; nextOffset: number | null };
@@ -451,7 +452,7 @@ function App() {
               <Dropdown
                 trigger={
                   <button className="avatar-button" aria-label={`Perfil de ${member.name}`}>
-                    {member.name.charAt(0).toLocaleUpperCase('pt-BR')}
+                    <Avatar member={member} className="header-avatar" />
                   </button>
                 }
               >

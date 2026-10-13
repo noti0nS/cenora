@@ -1,0 +1,2 @@
+ALTER TABLE members ADD COLUMN avatar TEXT;
+ALTER TABLE members ADD COLUMN avatar_revision INTEGER NOT NULL DEFAULT 0;

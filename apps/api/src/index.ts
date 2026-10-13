@@ -5,18 +5,22 @@ import { mediaRoutes } from './media';
 import { clubRoutes } from './club';
 import { outboxEnabled } from './mailer';
 import { ApiError, type AppEnv } from './lib';
+import { avatarRoutes } from './avatars';
+import { AVATAR_UPLOAD_BYTES } from '@cenora/shared';
 
 const app = new Hono<AppEnv>();
-app.use(
-  '/api/*',
+app.use('/api/*', (c, next) =>
   bodyLimit({
-    maxSize: 128 * 1024,
+    maxSize:
+      c.req.path === '/api/auth/profile/avatar' && c.req.method === 'PUT'
+        ? AVATAR_UPLOAD_BYTES
+        : 128 * 1024,
     onError: (c) =>
       c.json(
         { error: { code: 'TOO_LARGE', message: 'Os dados enviados são grandes demais.' } },
         413,
       ),
-  }),
+  })(c, next),
 );
 app.use('/api/*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
@@ -34,6 +38,7 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 app.get('/api/health', (c) => c.json({ ok: true }));
+app.route('/api/auth/profile/avatar', avatarRoutes);
 app.route('/api/auth', auth);
 app.get('/api/dev/outbox', async (c) => {
   if (!outboxEnabled(c)) throw new ApiError(404, 'NOT_FOUND', 'Esta ação não foi encontrada.');

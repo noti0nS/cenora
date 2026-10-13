@@ -4,6 +4,7 @@ import type { ZodType } from 'zod';
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  AVATARS?: R2Bucket;
   TMDB_TOKEN?: string;
   OMDB_KEY?: string;
   ENVIRONMENT?: string;
@@ -115,4 +116,15 @@ export function pepperFor(c: Context<AppEnv>) {
 // O contexto é o clube (e não o token) para a senha sobreviver à rotação do link.
 export function invitePasswordDigest(pepper: string, clubId: string, password: string) {
   return hmac(pepper, `invite:${clubId}:${password}`);
+}
+
+export function avatarFields(memberId: string, avatar: string | null, revision = 0) {
+  return {
+    avatarUrl: avatar
+      ? avatar.startsWith('preset:')
+        ? `/avatars/${avatar.slice(7)}.svg`
+        : `/api/club/members/${memberId}/avatar?v=${revision}`
+      : null,
+    avatarRevision: revision,
+  };
 }

@@ -20,6 +20,7 @@ import type { Club, ClubInvite, ClubOption, Member, SessionState } from '@cenora
 import { api, json, errorMessage } from '@/lib/api';
 import { extractInviteToken, inviteLink } from '@/lib/invite';
 import { Button, CodeReveal, Field, Modal, Segmented, copyCode } from './ui';
+import { Avatar } from './avatar';
 
 type Roster = (Member & { active: number; linked?: number })[];
 type Tab = 'people' | 'invite' | 'settings';
@@ -260,7 +261,7 @@ export function ClubsDialog({
       ) : (
         roster.data?.map((person) => (
           <div className="roster-row" key={person.id}>
-            <span className="small-avatar">{person.name.charAt(0).toLocaleUpperCase('pt-BR')}</span>
+            <Avatar member={person} />
             <span className="roster-name">
               {person.name}
               <small>

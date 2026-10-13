@@ -68,6 +68,20 @@ The same screen also accepts newline-separated lists. The club owner can export 
 
 ## Access and collaboration
 
+### Profile pictures
+
+Open **Meu perfil → Sua foto** to upload a picture or select one of eight original illustrated avatars. Each club profile has its own picture. PNG, JPEG, WebP, GIF, AVIF, BMP and ICO files up to 10 MB are decoded in the browser, center-cropped to a square and re-encoded as a static WebP up to 512 × 512 pixels / 512 KB. This strips source metadata and animation. SVG uploads are not accepted; the bundled preset SVGs contain only our own artwork.
+
+Uploads live in a **private Cloudflare R2 bucket**, bound as `AVATARS`. The Worker checks the session and active club before serving a photo; there are no public R2 URLs or browser S3 credentials. Presets need no storage. Replacing or removing an upload deletes the previous object; revisions prevent concurrent devices from silently overwriting each other. Local development and tests simulate R2 without credentials.
+
+Before deploying this feature, apply migration `0009` and create the bucket once:
+
+```powershell
+pnpm --filter @cenora/api exec cf r2 buckets create --name cenora-avatars
+```
+
+Staging uses a separate `cenora-avatars-staging` bucket. `R2_AVATARS_BUCKET` can override the bucket name when evaluating the Worker configuration. Keep R2 public access disabled; no CORS configuration is needed because uploads pass through the same-origin Worker.
+
 Sessions keep the original cookie and browser-preference keys (`watchlist:*`), preserving existing logins, names and themes. Dark is the default theme.
 
 - Every person has an **identity**, with or without an email. Email is one way to prove who you are, not a requirement: guests enter with a club invite and keep an identity that works across clubs.

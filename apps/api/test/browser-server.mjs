@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const port = Number(process.env.E2E_PORT || 8788);
 await mkdir(path.join(root, '.test'), { recursive: true });
 await build({
   entryPoints: [path.join(root, 'apps/api/src/index.ts')],
@@ -23,6 +24,7 @@ const mf = new Miniflare(
     scriptPath: path.join(root, '.test/browser-worker.mjs'),
     compatibilityDate: '2026-10-11',
     d1Databases: { DB: '22222222-2222-4222-8222-222222222222' },
+    r2Buckets: { AVATARS: 'browser-avatars' },
     bindings: { ENVIRONMENT: 'development' },
   }),
 );
@@ -54,7 +56,7 @@ const mime = {
 let client = 0;
 const server = createServer(async (request, response) => {
   try {
-    const url = new URL(request.url, 'http://127.0.0.1:8788');
+    const url = new URL(request.url, `http://127.0.0.1:${port}`);
     if (url.pathname.startsWith('/api/')) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
@@ -93,8 +95,8 @@ const server = createServer(async (request, response) => {
     response.end('Not found');
   }
 });
-await new Promise((resolve) => server.listen(8788, '127.0.0.1', resolve));
-console.log('Isolated browser test server ready on http://127.0.0.1:8788');
+await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+console.log(`Isolated browser test server ready on http://127.0.0.1:${port}`);
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, async () => {
     server.close();

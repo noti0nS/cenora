@@ -8,6 +8,7 @@ import { api, json, errorMessage, RequestError } from '@/lib/api';
 import { Modal, Button, Field, CodeReveal } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
 import { TurnstileField } from './turnstile-field';
+import { AvatarPicker } from './avatar-picker';
 
 function AttachEmail({ onLinked }: { onLinked: () => void }) {
   const [step, setStep] = useState<'email' | 'code'>('email');
@@ -235,6 +236,13 @@ export function SettingsDialog({
         <CodeReveal label={code.label} value={code.value} onDone={() => setCode(null)} />
       ) : (
         <>
+          <AvatarPicker
+            key={`${member.id}:${open}`}
+            member={member}
+            busy={busy}
+            run={run}
+            onProfile={onProfile}
+          />
           <form className="stack" onSubmit={profile}>
             <Field label="Seu nome">
               <input

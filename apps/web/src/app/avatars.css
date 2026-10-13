@@ -1,0 +1,85 @@
+.profile-avatar {
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  flex: none;
+  border-radius: 50%;
+}
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.header-avatar {
+  width: 100%;
+  height: 100%;
+}
+.avatar-preview {
+  width: 72px;
+  height: 72px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 700;
+}
+.avatar-picker {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.avatar-picker h4,
+.avatar-picker p {
+  margin: 0;
+}
+.avatar-picker-heading,
+.avatar-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.avatar-picker-heading > div {
+  flex: 1;
+  min-width: 160px;
+}
+.avatar-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.avatar-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.avatar-presets button {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 11px;
+}
+.avatar-presets img {
+  width: min(64px, 100%);
+  height: auto;
+  border-radius: 10px;
+}
+.avatar-presets button:hover,
+.avatar-presets button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.avatar-presets button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}

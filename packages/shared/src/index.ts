@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './avatars';
 
 export const personalStatuses = ['want', 'watching', 'watched', 'dropped'] as const;
 export const groupStatuses = ['planned', 'watching', 'watched'] as const;
@@ -112,6 +113,8 @@ export interface Member {
   id: string;
   name: string;
   role: 'owner' | 'member';
+  avatarUrl?: string | null;
+  avatarRevision?: number;
 }
 export interface Club {
   id: string;

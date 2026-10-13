@@ -5,6 +5,30 @@ import { readFile, mkdir, readdir } from 'node:fs/promises';
 import { createHash, createHmac } from 'node:crypto';
 import { resolve } from 'node:path';
 import { screenshotEntries } from '@cenora/shared/import';
+import { AVATAR_UPLOAD_BYTES } from '@cenora/shared';
+
+const avatarBytes = Buffer.from(
+  'UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoCAAIAAUAmJaQAA3AA/v02aAA=',
+  'base64',
+);
+async function uploadAvatar(
+  bytes = avatarBytes,
+  revision = 0,
+  cookie = ownerCookie,
+  origin = 'http://localhost',
+  contentType = 'image/webp',
+) {
+  return mf.dispatchFetch('http://localhost/api/auth/profile/avatar', {
+    method: 'PUT',
+    headers: {
+      Origin: origin,
+      Cookie: cookie,
+      'Content-Type': contentType,
+      'If-Match': String(revision),
+    },
+    body: bytes,
+  });
+}
 
 let mf: Miniflare, db: D1Database, ownerCookie: string, clubToken: string, ownerId: string;
 let ip = 1;
@@ -102,6 +126,7 @@ beforeEach(async () => {
       scriptPath: resolve('.test/worker.mjs'),
       compatibilityDate: '2026-10-11',
       d1Databases: { DB: '00000000-0000-0000-0000-000000000001' },
+      r2Buckets: { AVATARS: 'test-avatars' },
       bindings: { ENVIRONMENT: 'development' },
     }),
   );
@@ -117,6 +142,143 @@ beforeEach(async () => {
 afterEach(async () => {
   await mf?.dispose();
 });
+describe('private profile avatars on a real Worker + D1 + R2 runtime', () => {
+  it('saves presets, preserves them when renaming, and returns them in sessions and rosters', async () => {
+    const saved = await request('/auth/profile/avatar', 'PATCH', { preset: 'gato', revision: 0 });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      id: ownerId,
+      avatarUrl: '/avatars/gato.svg',
+      avatarRevision: 1,
+    });
+    const renamed = await request('/auth/profile', 'PATCH', { name: 'Novo nome' });
+    expect(await renamed.json()).toMatchObject({
+      name: 'Novo nome',
+      avatarUrl: '/avatars/gato.svg',
+      avatarRevision: 1,
+    });
+    expect(await (await request('/auth/session')).json()).toMatchObject({
+      member: { avatarUrl: '/avatars/gato.svg', avatarRevision: 1 },
+    });
+    const roster = (await (await request('/club/members')).json()) as any[];
+    expect(roster.find((member) => member.id === ownerId)).toMatchObject({
+      avatarUrl: '/avatars/gato.svg',
+      avatarRevision: 1,
+    });
+    expect(roster[0]).not.toHaveProperty('avatar');
+    expect((await mf.getR2Bucket('AVATARS').then((b) => b.list())).objects).toHaveLength(0);
+  });
+  it('stores normalized pictures privately and serves them only to the active club', async () => {
+    const saved = await uploadAvatar();
+    expect(saved.status).toBe(200);
+    const profile = (await saved.json()) as any;
+    expect(profile.avatarUrl).toBe(`/api/club/members/${ownerId}/avatar?v=1`);
+    const path = profile.avatarUrl.replace('/api', '');
+    const photo = await request(path);
+    expect(photo.status).toBe(200);
+    expect(photo.headers.get('Content-Type')).toBe('image/webp');
+    expect(photo.headers.get('Cache-Control')).toBe('no-store');
+    expect(photo.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(Buffer.from(await photo.arrayBuffer())).toEqual(avatarBytes);
+    const friend = await join('Amiga');
+    expect((await request(path, 'GET', undefined, friend.cookie)).status).toBe(200);
+    expect((await request(path, 'GET', undefined, '')).status).toBe(401);
+    const other = await createClub('Outro clube');
+    expect((await request(path, 'GET', undefined, other.cookie)).status).toBe(404);
+    const removed = await request(`/club/members/${friend.member.id}`, 'DELETE');
+    expect(removed.status).toBe(200);
+    expect((await request(path, 'GET', undefined, friend.cookie)).status).toBe(401);
+  });
+  it('cleans replaced uploads, rejects stale revisions, and returns to the initial', async () => {
+    expect((await uploadAvatar()).status).toBe(200);
+    const bucket = await mf.getR2Bucket('AVATARS');
+    const firstKey = (await bucket.list()).objects[0].key;
+    const replacement = await uploadAvatar(avatarBytes, 1);
+    expect(replacement.status).toBe(200);
+    await expect.poll(() => bucket.get(firstKey)).toBeNull();
+    expect((await bucket.list()).objects).toHaveLength(1);
+    const stale = await uploadAvatar(avatarBytes, 1);
+    expect(stale.status).toBe(409);
+    await expect.poll(async () => (await bucket.list()).objects).toHaveLength(1);
+    const preset = await request('/auth/profile/avatar', 'PATCH', { preset: 'robo', revision: 2 });
+    expect(preset.status).toBe(200);
+    await expect.poll(async () => (await bucket.list()).objects).toHaveLength(0);
+    expect(
+      (await request('/auth/profile/avatar', 'PATCH', { preset: null, revision: 2 })).status,
+    ).toBe(409);
+    const reset = await request('/auth/profile/avatar', 'PATCH', { preset: null, revision: 3 });
+    expect(await reset.json()).toMatchObject({ avatarUrl: null, avatarRevision: 4 });
+  });
+  it('allows members to change only their own picture, including scoped re-access', async () => {
+    const friend = await join('Ana');
+    const saved = await request(
+      '/auth/profile/avatar',
+      'PATCH',
+      { preset: 'alien', revision: 0, memberId: ownerId },
+      friend.cookie,
+    );
+    expect(await saved.json()).toMatchObject({
+      id: friend.member.id,
+      avatarUrl: '/avatars/alien.svg',
+    });
+    expect(await (await request('/auth/session')).json()).toMatchObject({
+      member: { avatarUrl: null },
+    });
+    const claim = (await (
+      await request(`/club/members/${friend.member.id}/claim`, 'POST')
+    ).json()) as any;
+    const recovered = await request('/auth/claim', 'POST', { code: claim.claimCode }, '');
+    expect(recovered.status).toBe(200);
+    const scopedCookie = recovered.headers.get('set-cookie')!.split(';')[0];
+    expect((await uploadAvatar(avatarBytes, 1, scopedCookie)).status).toBe(200);
+  });
+  it('rejects unknown presets, invalid bytes, animation, oversized dimensions and bodies', async () => {
+    expect(
+      (await request('/auth/profile/avatar', 'PATCH', { preset: '../../other', revision: 0 }))
+        .status,
+    ).toBe(400);
+    expect((await uploadAvatar(Buffer.from('<svg onload="alert(1)"/>'))).status).toBe(400);
+    expect(
+      (await uploadAvatar(avatarBytes, 0, ownerCookie, 'http://localhost', 'image/png')).status,
+    ).toBe(415);
+    const large = Buffer.from(avatarBytes);
+    large.writeUInt16LE(513, 26);
+    large.writeUInt16LE(513, 28);
+    expect((await uploadAvatar(large)).status).toBe(400);
+    const animated = Buffer.from(avatarBytes);
+    animated.write('ANIM', 12);
+    expect((await uploadAvatar(animated)).status).toBe(400);
+    expect((await uploadAvatar(Buffer.alloc(AVATAR_UPLOAD_BYTES + 1))).status).toBe(413);
+    expect((await request('/club/lists', 'POST', { name: 'x'.repeat(128 * 1024) })).status).toBe(
+      413,
+    );
+    expect((await mf.getR2Bucket('AVATARS').then((b) => b.list())).objects).toHaveLength(0);
+  });
+  it('lets only one concurrent upload win without leaving orphan objects', async () => {
+    const results = await Promise.all([uploadAvatar(), uploadAvatar()]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+    const bucket = await mf.getR2Bucket('AVATARS');
+    await expect.poll(async () => (await bucket.list()).objects).toHaveLength(1);
+    expect(await (await request('/auth/session')).json()).toMatchObject({
+      member: { avatarRevision: 1 },
+    });
+  });
+  it('requires authentication, same-origin mutations and rate-limits changes', async () => {
+    expect((await uploadAvatar(avatarBytes, 0, '')).status).toBe(401);
+    expect(
+      (await uploadAvatar(avatarBytes, 0, ownerCookie, 'https://untrusted.example')).status,
+    ).toBe(403);
+    for (let revision = 0; revision < 30; revision++) {
+      expect(
+        (await request('/auth/profile/avatar', 'PATCH', { preset: 'gato', revision })).status,
+      ).toBe(200);
+    }
+    expect(
+      (await request('/auth/profile/avatar', 'PATCH', { preset: 'gato', revision: 30 })).status,
+    ).toBe(429);
+  });
+});
+
 describe('private club on a real Worker + D1 runtime', () => {
   it('creates private clubs freely with unique invitation codes and default lists', async () => {
     expect((await lists()).map((l) => l.name)).toEqual(['Filmes', 'Animes', 'Séries']);
@@ -416,6 +578,15 @@ describe('private club on a real Worker + D1 runtime', () => {
         .map((s) => s.trim())
         .filter(Boolean);
       await previous.batch(claims.map((s) => previous.prepare(s)));
+      for (const name of (await readdir('migrations'))
+        .filter((name) => name.endsWith('.sql') && name > '0006_member_claims.sql')
+        .sort()) {
+        const statements = (await readFile(`migrations/${name}`, 'utf8'))
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        await previous.batch(statements.map((s) => previous.prepare(s)));
+      }
       const session = await legacy.dispatchFetch('http://localhost/api/auth/session', {
         headers: { Cookie: 'watchlist_session=' + oldSession },
       });

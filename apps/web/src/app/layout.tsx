@@ -8,6 +8,7 @@ import '@fontsource/nunito-sans/700.css';
 import './globals.css';
 import './cenora.css';
 import './landing.css';
+import './avatars.css';
 export const metadata: Metadata = {
   title: 'Cenora · filmes e séries em boa companhia',
   description: 'A estante de filmes e séries da sua turma: assista, acompanhe e dê nota.',

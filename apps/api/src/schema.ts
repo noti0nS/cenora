@@ -7,6 +7,8 @@ export const members = sqliteTable('members', {
   recoveryHash: text('recovery_hash').notNull(),
   role: text('role').notNull(),
   active: integer('active').notNull(),
+  avatar: text('avatar'),
+  avatarRevision: integer('avatar_revision').notNull().default(0),
 });
 export const lists = sqliteTable('lists', {
   id: text('id').primaryKey(),

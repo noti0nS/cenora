@@ -13,10 +13,12 @@ import {
   hash,
   pepperFor,
   invitePasswordDigest,
+  avatarFields,
   type AppEnv,
 } from './lib';
 import { lists as listTable } from './schema';
 import { attach, registerCatalog, requireList } from './media';
+import { serveAvatar } from './avatars';
 
 export const clubRoutes = new Hono<AppEnv>();
 
@@ -127,13 +129,26 @@ clubRoutes.get('/members', async (c) => {
   const isOwner = c.get('member').role === 'owner';
   const rows = (
     await c.env.DB.prepare(
-      'SELECT id,name,role,active,(user_id IS NOT NULL) linked FROM members WHERE club_id=? AND active=1 ORDER BY role DESC,name',
+      'SELECT id,name,role,active,avatar,avatar_revision,(user_id IS NOT NULL) linked FROM members WHERE club_id=? AND active=1 ORDER BY role DESC,name',
     )
       .bind(c.get('club').id)
-      .all<{ id: string; name: string; role: 'owner' | 'member'; active: number; linked: number }>()
-  ).results;
+      .all<{
+        id: string;
+        name: string;
+        role: 'owner' | 'member';
+        active: number;
+        linked: number;
+        avatar: string | null;
+        avatar_revision: number;
+      }>()
+  ).results.map(({ avatar, avatar_revision, ...row }) => ({
+    ...row,
+    ...avatarFields(row.id, avatar, avatar_revision),
+  }));
   return c.json(isOwner ? rows : rows.map(({ linked: _linked, ...row }) => row));
 });
+
+clubRoutes.get('/members/:id/avatar', serveAvatar);
 
 clubRoutes.post('/token', async (c) => {
   owner(c);

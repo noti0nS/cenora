@@ -22,6 +22,11 @@ export default defineConfig(({ mode }) => ({
         name: mode === 'staging' ? 'cenora-staging' : 'cenora',
       }),
       ASSETS: bindings.assets(),
+      AVATARS: bindings.r2({
+        name:
+          process.env.R2_AVATARS_BUCKET ||
+          (mode === 'staging' ? 'cenora-avatars-staging' : 'cenora-avatars'),
+      }),
       ENVIRONMENT: bindings.text(mode === 'development' ? 'development' : 'production'),
       // Camada extra de rate limit por localidade. Fica fora do desenvolvimento
       // porque os testes e o dev local rodam em Miniflare, que não simula o binding.
