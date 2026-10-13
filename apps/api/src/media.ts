@@ -207,7 +207,6 @@ mediaRoutes.get('/recommendations', async (c) => {
     ),
   );
 });
-/** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
 /** Same-origin copy of a catalog poster, so the share card canvas is not tainted by CORS. */
 mediaRoutes.get('/poster', async (c) => {
   const url = c.req.query('url') ?? '';
@@ -227,6 +226,7 @@ mediaRoutes.get('/poster', async (c) => {
     return c.json({ error: 'Pôster indisponível.' }, 502);
   }
 });
+/** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
 mediaRoutes.get('/spin', async (c) => {
   const shelf = c.req.query('kind');
   const kind = shelf === 'tv' || shelf === 'anime' ? 'tv' : 'movie';

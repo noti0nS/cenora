@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, ArrowRight, Check, Loader2 } from 'lucide-react';
+import { Search, Plus, ArrowRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CatalogPage, CatalogResult, ShelfKind } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';

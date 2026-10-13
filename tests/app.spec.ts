@@ -1,6 +1,41 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { openShelfAction } from './helpers/shelf';
+
+const sampleShelfImport = [
+  ...[
+    'A Origem',
+    'Princesa Mononoke',
+    'Parasita',
+    'Garota Exemplar',
+    'Robô Selvagem',
+    'Bastardos Inglórios',
+    'Scarface',
+    'Anora',
+    'Zootopia',
+    'Zootopia 2',
+    'Alien: Romulus',
+    'A Substância',
+    'O Irlandês',
+    'A Baleia',
+    'O Fabuloso Destino de Amélie Poulain',
+    'Nimona',
+    ...Array.from({ length: 14 }, (_, i) => `Filme da estante ${i + 1}`),
+  ].map((title) => ({ title, kind: 'movie', category: 'Filmes' })),
+  ...['Fullmetal Alquimist Brotherhood', 'Nippon Sangoku', 'Minhas Aventuras com o Superman'].map(
+    (title) => ({ title, kind: 'tv', category: 'Animes' }),
+  ),
+  ...[
+    'Dark',
+    'Dexter',
+    'Hazbin Hotel',
+    'Superman & Lois',
+    'Spider-Noir',
+    'Uma mente excepcional',
+    'Peaky Blinders',
+    'X-Men 97',
+  ].map((title) => ({ title, kind: 'tv', category: 'Séries' })),
+];
 
 /** Simula só o widget externo; os fluxos de conta continuam usando o Worker real. */
 async function mockTurnstile(context: BrowserContext) {
@@ -39,12 +74,6 @@ let state: Awaited<ReturnType<BrowserContext['storageState']>>;
 let clubToken = '',
   recoveryCode = '';
 test.beforeAll(async ({ browser }) => {
-  const publicFiles = await readdir('apps/web/out', { recursive: true });
-  for (const file of publicFiles.filter((name) => name.endsWith('.js'))) {
-    const source = await readFile(`apps/web/out/${file}`, 'utf8');
-    expect(source).not.toContain('Seven - os 7 pecados capitais');
-    expect(source).not.toContain('Fullmetal Alquimist Brotherhood');
-  }
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:8788');
@@ -61,18 +90,21 @@ test.beforeAll(async ({ browser }) => {
   await page.getByRole('checkbox', { name: 'Guardei meus códigos em um lugar seguro.' }).check();
   await page.getByRole('button', { name: 'Ir para a Cenora' }).click();
   await expect(page.getByRole('tab', { name: /Filmes/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Trazer nossa lista do documento' }).click();
-  await expect(page.getByRole('heading', { name: 'Do documento para cá' })).toBeVisible();
+  await page.getByRole('button', { name: 'Importar títulos' }).click();
+  await expect(page.getByRole('heading', { name: 'Importar títulos' })).toBeVisible();
   await page.getByRole('button', { name: 'Importar arquivo', exact: true }).click();
-  await page.getByLabel('Escolha sua lista').setInputFiles('imports/google-docs.json');
-  await page.getByRole('button', { name: 'Separar Zootopia 1 e 2' }).click();
+  await page.getByLabel('Escolha sua lista').setInputFiles({
+    name: 'titles.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(sampleShelfImport)),
+  });
   await page
     .getByRole('checkbox', {
       name: 'Conferi os títulos. Os não vinculados serão guardados manualmente.',
     })
     .check();
   await page.getByRole('button', { name: 'Guardar 41 títulos' }).click();
-  await expect(page.getByRole('heading', { name: 'Do documento para cá' })).not.toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Importar títulos' })).not.toBeVisible({
     timeout: 15000,
   });
   await expect(page.locator('.card')).toHaveCount(30);

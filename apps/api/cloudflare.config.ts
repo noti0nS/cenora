@@ -1,6 +1,6 @@
 import { bindings, defineConfig, triggers } from 'cf/config';
 export default defineConfig(({ mode }) => ({
-  accountId: '87b9bb14c33d5cf43f13b7cb7d776014',
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '87b9bb14c33d5cf43f13b7cb7d776014',
   worker: {
     name: mode === 'staging' ? 'cenora-staging' : 'cenora',
     entrypoint: './src/index.ts',

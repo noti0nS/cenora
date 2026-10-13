@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Search, Check, Split, ClipboardList } from 'lucide-react';
+import { Search, Check, ClipboardList } from 'lucide-react';
 import { toast } from 'sonner';
 import { importSchema, type ImportEntry, type CatalogResult } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
@@ -85,19 +85,6 @@ export function ImportDialog({
     setEntries((old) => old.map((entry) => (entry.key === key ? { ...entry, ...values } : entry)));
     setConfirmed(false);
   };
-  const split = () => {
-    setEntries((old) =>
-      old.flatMap((entry) =>
-        entry.title === 'Zootopia 1 e 2'
-          ? [
-              { ...entry, title: 'Zootopia' },
-              { ...entry, key: Date.now(), title: 'Zootopia 2' },
-            ]
-          : [entry],
-      ),
-    );
-    setConfirmed(false);
-  };
   const choose = (result: CatalogResult) => {
     if (match !== null)
       patch(match, { title: result.title, kind: result.kind, tmdbId: result.tmdbId });
@@ -146,7 +133,7 @@ export function ImportDialog({
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      title="Do documento para cá"
+      title="Importar títulos"
       description="Traga sua lista e revise antes de guardar. Ela será compartilhada apenas com este clube."
       className="import-modal"
     >
@@ -206,12 +193,6 @@ export function ImportDialog({
             onChange={(event) => readFile(event.target.files?.[0])}
           />
         </Field>
-      )}
-      {entries.some((entry) => entry.title === 'Zootopia 1 e 2') && (
-        <button className="text-button" onClick={split} disabled={busy}>
-          <Split size={14} />
-          Separar Zootopia 1 e 2
-        </button>
       )}
       {!!entries.length && (
         <>

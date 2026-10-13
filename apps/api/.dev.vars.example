@@ -1,9 +1,15 @@
+# Optional: TMDB Read Access Token (v4) or API Key (v3)
 TMDB_TOKEN=
+
+# Optional: OMDb API key for IMDb scores
 OMDB_KEY=
-# Necessário em produção para o acesso por e-mail (em desenvolvimento há um valor local).
+
+# Required in production for email access and invite passwords (development uses a local fallback)
 AUTH_PEPPER=
-# Resend: sem chave em desenvolvimento, os códigos ficam no outbox local (/api/dev/outbox).
+
+# Optional in development (falls back to /api/dev/outbox); required in production for Resend email delivery
 RESEND_API_KEY=
 MAIL_FROM=Cenora <nao-responda@cenora.club>
-# Opcional: liga a verificação do Turnstile no envio de códigos.
+
+# Optional: enables Cloudflare Turnstile verification on email endpoints
 TURNSTILE_SECRET=

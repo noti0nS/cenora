@@ -4,8 +4,25 @@ import { build } from 'esbuild';
 import { readFile, mkdir, readdir } from 'node:fs/promises';
 import { createHash, createHmac } from 'node:crypto';
 import { resolve } from 'node:path';
-import { screenshotEntries } from '@cenora/shared/import';
-import { AVATAR_UPLOAD_BYTES } from '@cenora/shared';
+import { AVATAR_UPLOAD_BYTES, type ImportEntry } from '@cenora/shared';
+
+const sampleImportEntries: ImportEntry[] = [
+  ...Array.from({ length: 29 }, (_, i) => ({
+    title: i === 0 ? 'Seven - os 7 pecados capitais' : `Filme de teste ${i + 1}`,
+    kind: 'movie' as const,
+    category: 'Filmes',
+  })),
+  ...Array.from({ length: 3 }, (_, i) => ({
+    title: `Anime de teste ${i + 1}`,
+    kind: 'tv' as const,
+    category: 'Animes',
+  })),
+  ...Array.from({ length: 8 }, (_, i) => ({
+    title: `Série de teste ${i + 1}`,
+    kind: 'tv' as const,
+    category: 'Séries',
+  })),
+];
 
 const avatarBytes = Buffer.from(
   'UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoCAAIAAUAmJaQAA3AA/v02aAA=',
@@ -1575,13 +1592,16 @@ describe('private club on a real Worker + D1 runtime', () => {
     expect((await request(`/media/${title.id}`)).status).toBe(200);
     expect((await request(`/media/${title.id}`, 'DELETE', { revision: 1 })).status).toBe(200);
   });
-  it('imports screenshots idempotently and retains manual titles and order', async () => {
-    expect(screenshotEntries).toHaveLength(40);
+  it('imports batches idempotently and retains manual titles and order', async () => {
+    expect(sampleImportEntries).toHaveLength(40);
     for (let pass = 0; pass < 2; pass++)
-      for (let i = 0; i < screenshotEntries.length; i += 3)
+      for (let i = 0; i < sampleImportEntries.length; i += 3)
         expect(
-          (await request('/club/import', 'POST', { entries: screenshotEntries.slice(i, i + 3) }))
-            .status,
+          (
+            await request('/club/import', 'POST', {
+              entries: sampleImportEntries.slice(i, i + 3),
+            })
+          ).status,
         ).toBe(200);
     const rows = (await db.prepare('SELECT COUNT(*) count FROM media').first()) as any;
     expect(rows.count).toBe(40);
@@ -1602,7 +1622,7 @@ describe('private club on a real Worker + D1 runtime', () => {
     expect(search.available).toBe(false);
   });
   it('keeps import identity and personal tracking after a manual title is linked to TMDB', async () => {
-    const entry = screenshotEntries[0];
+    const entry = sampleImportEntries[0];
     const imported = (await (
       await request('/club/import', 'POST', { entries: [entry] })
     ).json()) as any;
@@ -1690,7 +1710,7 @@ describe('private club on a real Worker + D1 runtime', () => {
         await request(
           '/club/import',
           'POST',
-          { entries: screenshotEntries.slice(0, 1) },
+          { entries: sampleImportEntries.slice(0, 1) },
           friend.cookie,
         )
       ).status,

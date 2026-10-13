@@ -30,7 +30,6 @@ import {
   Sun,
   LogOut,
   ArrowUpRight,
-  Settings,
   UserRound,
   X,
   Play,
@@ -799,7 +798,7 @@ function App() {
                     </Button>
                     {member.role === 'owner' && (
                       <button className="text-button" onClick={() => setImporting(true)}>
-                        Trazer nossa lista do documento
+                        Importar títulos
                         <ArrowUpRight size={14} />
                       </button>
                     )}

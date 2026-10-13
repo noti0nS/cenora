@@ -19,9 +19,9 @@
   "devDependencies": {
     "cf": "1.0.0-beta.14",
     "wrangler": ">=4.136.0",
-    "miniflare": "latest",
-    "vitest": "latest",
-    "esbuild": "latest",
-    "@cloudflare/workers-types": "latest"
+    "miniflare": "5.20261006.1-alpha",
+    "vitest": "^5.0.3",
+    "esbuild": "^0.28.2",
+    "@cloudflare/workers-types": "^5.20261011.1"
   }
 }
