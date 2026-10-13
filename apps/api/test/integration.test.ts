@@ -73,9 +73,9 @@ async function manual(kind = 'movie', title = 'A Origem') {
   expect(res.status).toBe(201);
   return { id: ((await res.json()) as any).id, listId: list.id };
 }
-async function migrate(target: D1Database) {
+async function migrate(target: D1Database, before?: string) {
   for (const migration of (await readdir('migrations'))
-    .filter((name) => name.endsWith('.sql'))
+    .filter((name) => name.endsWith('.sql') && (!before || name < before))
     .sort()) {
     const statements = (await readFile(`migrations/${migration}`, 'utf8'))
       .split(';')
@@ -125,7 +125,10 @@ beforeEach(async () => {
       modules: true,
       scriptPath: resolve('.test/worker.mjs'),
       compatibilityDate: '2026-10-11',
-      d1Databases: { DB: '00000000-0000-0000-0000-000000000001' },
+      d1Databases: {
+        DB: '00000000-0000-0000-0000-000000000001',
+        HISTORY: '00000000-0000-0000-0000-000000000002',
+      },
       r2Buckets: { AVATARS: 'test-avatars' },
       bindings: { ENVIRONMENT: 'development' },
     }),
@@ -141,6 +144,312 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await mf?.dispose();
+});
+describe('private club ranking', () => {
+  const personal = (
+    id: string,
+    revision: number,
+    overrides: Record<string, unknown> = {},
+    cookie = ownerCookie,
+  ) =>
+    request(
+      `/media/${id}/personal`,
+      'PUT',
+      { status: 'watched', rating: null, season: null, episode: null, revision, ...overrides },
+      cookie,
+    );
+  const ranking = async (kind = 'movie', period = 'month', cookie = ownerCookie) => {
+    const response = await request(
+      `/club/ranking?kind=${kind}&period=${period}`,
+      'GET',
+      undefined,
+      cookie,
+    );
+    expect(response.status).toBe(200);
+    return (await response.json()) as any;
+  };
+  it('counts personal records, shares tied positions and distinct club titles, and never awards group progress', async () => {
+    const friend = await join('Amiga');
+    const movie = await manual();
+    expect(
+      (
+        await request(`/media/${movie.id}/group`, 'PUT', {
+          status: 'watched',
+          season: null,
+          episode: null,
+          revision: 0,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await ranking()).entries.every((e: any) => e.count === 0 && e.position === null)).toBe(
+      true,
+    );
+    expect((await personal(movie.id, 0, { rating: 0.5 })).status).toBe(200);
+    expect((await personal(movie.id, 0, { rating: 10 }, friend.cookie)).status).toBe(200);
+    const result = await ranking();
+    expect(result.clubTitles).toBe(1);
+    expect(result.entries).toHaveLength(2);
+    expect(
+      result.entries.every((e: any) => e.count === 1 && e.position === 1 && e.rated === 1),
+    ).toBe(true);
+    expect(result.participation.badges).toContain('debut');
+    expect((await personal(movie.id, 0)).status).toBe(409);
+    expect((await ranking()).entries.find((e: any) => e.id === ownerId).count).toBe(1);
+    expect(
+      (await db.prepare('SELECT * FROM ranking_events WHERE member_id=?').bind(ownerId).all())
+        .results,
+    ).toHaveLength(1);
+  });
+  it('preserves original registration dates through corrections, retries and concurrent writes', async () => {
+    const movie = await manual();
+    const concurrent = await Promise.all([personal(movie.id, 0), personal(movie.id, 0)]);
+    expect(concurrent.map((r) => r.status).sort()).toEqual([200, 409]);
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=1 WHERE media_id=?')
+      .bind(movie.id)
+      .run();
+    expect((await ranking()).entries[0].count).toBe(0);
+    expect((await ranking('movie', 'all')).entries[0].count).toBe(1);
+    expect((await personal(movie.id, 1, { status: 'want' })).status).toBe(200);
+    expect((await ranking('movie', 'all')).entries[0].count).toBe(0);
+    expect((await personal(movie.id, 2)).status).toBe(200);
+    expect((await ranking()).entries[0].count).toBe(0);
+    expect((await ranking('movie', 'all')).entries[0].count).toBe(1);
+    expect(
+      (
+        await db
+          .prepare('SELECT recorded_at FROM ranking_events WHERE media_id=?')
+          .bind(movie.id)
+          .first()
+      )?.recorded_at,
+    ).toBe(1);
+  });
+  it('counts episode ranges, season completions and anime separately, including corrections across months', async () => {
+    const show = await manual('tv', 'Série de teste');
+    await db
+      .prepare('UPDATE media SET metadata=? WHERE id=?')
+      .bind(
+        JSON.stringify({
+          seasons: [
+            { number: 1, name: 'T1', episodes: 3 },
+            { number: 2, name: 'T2', episodes: 4 },
+          ],
+        }),
+        show.id,
+      )
+      .run();
+    expect((await personal(show.id, 0, { status: 'watching', season: 1, episode: 3 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 3, seasons: 1 });
+    expect((await ranking('tv')).participation.badges).toContain('credits');
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=1 WHERE media_id=?')
+      .bind(show.id)
+      .run();
+    expect((await personal(show.id, 1, { status: 'watching', season: 2, episode: 2 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 2, seasons: 0 });
+    expect((await ranking('tv', 'all')).entries[0]).toMatchObject({ count: 5, seasons: 1 });
+    expect((await personal(show.id, 2, { status: 'watching', season: 1, episode: 2 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 0, seasons: 0 });
+    expect((await ranking('tv', 'all')).entries[0]).toMatchObject({ count: 2, seasons: 0 });
+    expect((await personal(show.id, 3, { status: 'watched', season: 2, episode: 4 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 4, seasons: 1 });
+    expect((await ranking('tv', 'all')).entries[0]).toMatchObject({ count: 7, seasons: 2 });
+    await db.prepare('UPDATE media SET is_anime=1 WHERE id=?').bind(show.id).run();
+    expect((await ranking('tv')).entries[0].count).toBe(0);
+    expect((await ranking('anime')).entries[0].count).toBe(4);
+    expect((await ranking()).entries[0].count).toBe(0);
+  });
+  it('supports manual episodes without guessing seasons and does not count imports', async () => {
+    const show = await manual('tv', 'Manual');
+    expect((await personal(show.id, 0, { status: 'watching', season: 4, episode: 2 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 2, seasons: 0 });
+    expect((await personal(show.id, 1, { status: 'watching', season: 5, episode: 1 })).status).toBe(
+      200,
+    );
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 3, seasons: 0 });
+    const imported = await request('/club/import', 'POST', {
+      entries: [{ title: 'Importado', kind: 'movie', category: 'Filmes' }],
+    });
+    expect(imported.status).toBe(200);
+    expect((await ranking()).entries[0].count).toBe(0);
+  });
+  it('keeps preferences and badges scoped to the current profile, and excludes opted-out and removed members', async () => {
+    const a = await join('Amiga');
+    const b = await join('Outra amiga');
+    const movie = await manual();
+    await personal(movie.id, 0);
+    await personal(movie.id, 0, {}, a.cookie);
+    await personal(movie.id, 0, {}, b.cookie);
+    expect((await ranking()).participation.badges).toContain('company');
+    expect((await request('/club/ranking/participation', 'PATCH', { badge: 'debut' })).status).toBe(
+      200,
+    );
+    expect((await ranking()).entries.find((e: any) => e.id === ownerId).badge).toBe('debut');
+    await request('/club/ranking/participation', 'PATCH', { badge: 'critic' });
+    expect((await ranking()).entries.find((e: any) => e.id === ownerId).badge).toBeNull();
+    expect((await request('/club/ranking/participation', 'PATCH', { enabled: false })).status).toBe(
+      200,
+    );
+    expect((await ranking()).entries).toHaveLength(2);
+    expect((await ranking()).participation.enabled).toBe(false);
+    expect((await ranking()).participation.badges).not.toContain('company');
+    expect((await request(`/media/${movie.id}`)).status).toBe(200);
+    const other = await createClub('Outro');
+    expect((await ranking('movie', 'all', other.cookie)).entries).toHaveLength(1);
+    expect((await ranking('movie', 'all', other.cookie)).clubTitles).toBe(0);
+    await request('/club/ranking/participation', 'PATCH', { enabled: true });
+    await request(`/club/members/${b.member.id}`, 'DELETE');
+    expect((await ranking()).entries).toHaveLength(2);
+    expect((await ranking()).participation.badges).not.toContain('company');
+    expect((await request('/club/ranking', 'GET', undefined, '')).status).toBe(401);
+    expect((await request('/club/ranking?kind=invalid')).status).toBe(400);
+    expect(
+      (
+        await request(
+          '/club/ranking/participation',
+          'PATCH',
+          { enabled: false },
+          ownerCookie,
+          'https://evil.example',
+        )
+      ).status,
+    ).toBe(403);
+    expect((await request('/club/ranking/participation', 'PATCH', {})).status).toBe(400);
+  });
+  it('unlocks the critic badge for watched titles only, irrespective of rating value', async () => {
+    for (let i = 0; i < 5; i++) {
+      const movie = await manual('movie', `Filme ${i}`);
+      await personal(movie.id, 0, {
+        status: i === 4 ? 'want' : 'watched',
+        rating: i % 2 ? 10 : 0.5,
+      });
+      if (i === 4) {
+        expect((await ranking()).participation.badges).not.toContain('critic');
+        await personal(movie.id, 1, { rating: 0.5 });
+      }
+    }
+    expect((await ranking()).participation.badges).toContain('critic');
+  });
+  it('uses Brasília month boundaries and excludes the next month', async () => {
+    const calendar = new Date(Date.now() - 3 * 3600000);
+    const start = Date.UTC(calendar.getUTCFullYear(), calendar.getUTCMonth(), 1, 3) / 1000;
+    const end = Date.UTC(calendar.getUTCFullYear(), calendar.getUTCMonth() + 1, 1, 3) / 1000;
+    for (const [i, date] of [start - 1, start, end - 1, end].entries()) {
+      const movie = await manual('movie', `Data ${i}`);
+      await personal(movie.id, 0);
+      await db
+        .prepare('UPDATE ranking_events SET recorded_at=? WHERE media_id=?')
+        .bind(date, movie.id)
+        .run();
+    }
+    expect((await ranking()).entries[0].count).toBe(2);
+    expect((await ranking('movie', 'all')).entries[0].count).toBe(4);
+  });
+  it('backfills newly discovered catalog seasons without awarding old progress this month', async () => {
+    const show = await manual('tv', 'Manual vinculado depois');
+    await personal(show.id, 0, { status: 'watching', season: 2, episode: 2 });
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=1 WHERE media_id=?')
+      .bind(show.id)
+      .run();
+    await db
+      .prepare('UPDATE media SET metadata=? WHERE id=?')
+      .bind(
+        JSON.stringify({
+          seasons: [
+            { number: 1, name: 'T1', episodes: 4 },
+            { number: 2, name: 'T2', episodes: 5 },
+          ],
+        }),
+        show.id,
+      )
+      .run();
+    expect(
+      (await personal(show.id, 1, { status: 'watching', season: 2, episode: 2, rating: 8 })).status,
+    ).toBe(200);
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 0, seasons: 0 });
+    expect((await ranking('tv', 'all')).entries[0]).toMatchObject({ count: 6, seasons: 1 });
+    await personal(show.id, 2, { status: 'watching', season: 2, episode: 3, rating: 8 });
+    expect((await ranking('tv')).entries[0]).toMatchObject({ count: 1, seasons: 0 });
+  });
+  it('backfills legacy movie and episode checkpoints without inventing activity dates', async () => {
+    const history = (await mf.getD1Database('HISTORY')) as unknown as D1Database;
+    await migrate(history, '0011');
+    await history.batch([
+      history.prepare(
+        "INSERT INTO clubs(id,name,token_hash,owner_id) VALUES ('c','Clube','token','m')",
+      ),
+      history.prepare(
+        "INSERT INTO members(id,club_id,name,normalized_name,recovery_hash,role) VALUES ('m','c','Ana','ana','hash','owner')",
+      ),
+      history.prepare(
+        "INSERT INTO media(id,club_id,title,normalized_title,kind,created_by) VALUES ('film','c','Filme','filme','movie','m')",
+      ),
+      history
+        .prepare(
+          'INSERT INTO media(id,club_id,title,normalized_title,kind,created_by,metadata) VALUES (?,?,?,?,?,?,?)',
+        )
+        .bind(
+          'show',
+          'c',
+          'Série',
+          'serie',
+          'tv',
+          'm',
+          JSON.stringify({
+            seasons: [
+              { number: 1, name: 'T1', episodes: 3 },
+              { number: 2, name: 'T2', episodes: 4 },
+            ],
+          }),
+        ),
+      history.prepare(
+        "INSERT INTO media(id,club_id,title,normalized_title,kind,created_by) VALUES ('manual','c','Manual','manual','tv','m')",
+      ),
+      history.prepare(
+        "INSERT INTO member_media(member_id,media_id,status) VALUES ('m','film','watched')",
+      ),
+      history.prepare(
+        "INSERT INTO member_media(member_id,media_id,status,season,episode) VALUES ('m','show','watching',2,2),('m','manual','watching',4,3)",
+      ),
+    ]);
+    const statements = (await readFile('migrations/0011_club_ranking.sql', 'utf8'))
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await history.batch(statements.map((s) => history.prepare(s)));
+    expect(
+      (
+        await history
+          .prepare("SELECT SUM(current_count) count FROM ranking_units WHERE unit='episode'")
+          .first()
+      )?.count,
+    ).toBe(8);
+    expect(
+      (
+        await history
+          .prepare("SELECT SUM(current_count) count FROM ranking_units WHERE unit='season'")
+          .first()
+      )?.count,
+    ).toBe(1);
+    expect(
+      (
+        await history
+          .prepare('SELECT COUNT(*) count FROM ranking_events WHERE recorded_at IS NOT NULL')
+          .first()
+      )?.count,
+    ).toBe(0);
+  });
 });
 describe('private profile avatars on a real Worker + D1 + R2 runtime', () => {
   it('saves presets, preserves them when renaming, and returns them in sessions and rosters', async () => {

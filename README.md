@@ -68,6 +68,28 @@ The same screen also accepts newline-separated lists. The club owner can export 
 
 ## Access and collaboration
 
+### Club ranking
+
+The trophy beside the club opens a private, optional ranking, with separate movie,
+show and anime leaderboards. Movies count personal watched titles; shows count
+known episodes, with completed catalog seasons as a secondary metric. Monthly
+registration uses Brasília's calendar (UTC−3), not an inferred watch date. Ties
+share a position, and members without records have no position yet.
+
+Migration **0011** backfills old personal checkpoints into the all-time ranking
+without assigning activity dates. New personal writes update a compact episode-range
+ledger atomically with the existing revision check. Corrections reduce totals;
+re-marking restores the first registration without awarding repeats or moving it
+to a new month. Group edits and imports do not award personal activity. Manual
+shows count only known episodes, never assumed earlier seasons or completions.
+
+Four achievements reflect current progress: first movie, completed season, five
+rated watched/started titles, and a title watched by three participating active
+members. A member can select one unlocked badge or opt out per club. Opting out
+preserves progress but removes the member from the leaderboard and collective
+summary. Achievements are not permanent rewards for corrected/removed records.
+No public sharing, global XP, daily streaks or rewatch points are introduced.
+
 ### Profile pictures
 
 Open **Meu perfil → Sua foto** to upload a picture or select one of eight original illustrated avatars. Each club profile has its own picture. PNG, JPEG, WebP, GIF, AVIF, BMP and ICO files up to 10 MB are decoded in the browser, center-cropped to a square and re-encoded as a static WebP up to 512 × 512 pixels / 512 KB. This strips source metadata and animation. SVG uploads are not accepted; the bundled preset SVGs contain only our own artwork.

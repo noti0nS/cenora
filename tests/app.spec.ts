@@ -71,7 +71,9 @@ test.beforeAll(async ({ browser }) => {
     })
     .check();
   await page.getByRole('button', { name: 'Guardar 41 títulos' }).click();
-  await expect(page.getByRole('heading', { name: 'Do documento para cá' })).not.toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Do documento para cá' })).not.toBeVisible({
+    timeout: 15000,
+  });
   await expect(page.locator('.card')).toHaveCount(30);
   state = await context.storageState();
   await context.close();

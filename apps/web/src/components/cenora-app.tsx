@@ -38,6 +38,7 @@ import {
   Dices,
   ShieldAlert,
   Users,
+  Trophy,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club, ShelfKind } from '@cenora/shared';
@@ -53,6 +54,7 @@ import { ClubsDialog } from './clubs-panel';
 import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
 import { Avatar } from './avatar';
+import { ClubRankingDialog } from './club-ranking';
 
 type Kind = ShelfKind;
 type Page = { items: Media[]; nextOffset: number | null };
@@ -157,6 +159,7 @@ function App() {
   const [add, setAdd] = useState(false),
     [settings, setSettings] = useState(false),
     [clubsOpen, setClubsOpen] = useState(false),
+    [rankingOpen, setRankingOpen] = useState(false),
     [importing, setImporting] = useState(false),
     [spinning, setSpinning] = useState(false),
     [inviteOpen, setInviteOpen] = useState(false);
@@ -486,6 +489,14 @@ function App() {
                 <Users size={15} />
                 <span>{session.data?.club?.name}</span>
               </button>
+              <button
+                className="icon-button ranking-trigger"
+                aria-label="Ranking do clube"
+                title="Ranking do clube"
+                onClick={() => setRankingOpen(true)}
+              >
+                <Trophy size={18} />
+              </button>
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
                 <span>Adicionar</span>
@@ -528,6 +539,10 @@ function App() {
                 <MenuItem onSelect={() => setClubsOpen(true)}>
                   <Users size={16} />
                   Clubes e participantes
+                </MenuItem>
+                <MenuItem onSelect={() => setRankingOpen(true)}>
+                  <Trophy size={16} />
+                  Ranking do clube
                 </MenuItem>
                 {member.role === 'owner' && (
                   <MenuItem onSelect={() => setImporting(true)}>
@@ -783,6 +798,16 @@ function App() {
               setStatus('');
             }}
           />
+          {session.data?.club && (
+            <ClubRankingDialog
+              key={session.data.club.id}
+              open={rankingOpen}
+              onClose={() => setRankingOpen(false)}
+              member={member}
+              clubId={session.data.club.id}
+              defaultKind={kind}
+            />
+          )}
           <ImportDialog
             open={importing}
             onClose={() => setImporting(false)}

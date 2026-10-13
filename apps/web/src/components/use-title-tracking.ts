@@ -32,6 +32,7 @@ export function useTitleTracking(data: MediaDetails) {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['detail', data.id] }),
       qc.invalidateQueries({ queryKey: ['media'] }),
+      qc.invalidateQueries({ queryKey: ['ranking'] }),
     ]);
     return qc.getQueryData<MediaDetails>(['detail', data.id]) ?? null;
   };

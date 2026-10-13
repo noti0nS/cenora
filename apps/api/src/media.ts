@@ -11,6 +11,7 @@ import {
 } from '@cenora/shared';
 import { ApiError, body, checkpoint, id, owner, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
+import { metadataSeasons, progressUnits, recordProgress } from './ranking';
 
 type Row = Record<string, any>;
 export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id JOIN media rated ON rated.id=mm.media_id WHERE rated.club_id=? AND rater.club_id=rated.club_id AND rater.active=1 GROUP BY mm.media_id)
@@ -352,23 +353,60 @@ mediaRoutes.delete('/:id', async (c) => {
 });
 mediaRoutes.put('/:id/personal', async (c) => {
   const input = await body(c, personalSchema);
-  const { media } = await getMedia(c, c.req.param('id'));
+  const { media, row } = await getMedia(c, c.req.param('id'));
   checkpoint(media.kind, input.season, input.episode);
   if (!media.personal && input.revision !== 0)
     throw new ApiError(409, 'CONFLICT', 'Seu progresso mudou. Atualize e tente novamente.');
-  const result = await c.env.DB.prepare(
-    'INSERT INTO member_media (member_id,media_id,status,half_points,season,episode,revision) VALUES (?,?,?,?,?,?,1) ON CONFLICT(member_id,media_id) DO UPDATE SET status=excluded.status,half_points=excluded.half_points,season=excluded.season,episode=excluded.episode,revision=member_media.revision+1 WHERE member_media.revision=?',
+  let seasons = metadataSeasons(row.metadata);
+  if (media.kind === 'tv' && media.tmdbId && c.env.TMDB_TOKEN) {
+    try {
+      seasons = (await catalogDetails(c.env, media.kind, media.tmdbId)).seasons;
+    } catch {
+      /* Tracking remains available without providers. */
+    }
+  }
+  const previous = await c.env.DB.prepare(
+    'SELECT unit,season,high_water count FROM ranking_units WHERE member_id=? AND media_id=?',
   )
-    .bind(
+    .bind(c.get('member').id, media.id)
+    .all<{ unit: 'movie' | 'episode' | 'season'; season: number; count: number }>();
+  const write = id();
+  const update = c.env.DB.prepare(
+    'INSERT INTO member_media (member_id,media_id,status,half_points,season,episode,revision,ranking_write) SELECT ?,?,?,?,?,?,1,? WHERE ?=0 OR EXISTS(SELECT 1 FROM member_media WHERE member_id=? AND media_id=?) ON CONFLICT(member_id,media_id) DO UPDATE SET status=excluded.status,half_points=excluded.half_points,season=excluded.season,episode=excluded.episode,revision=member_media.revision+1,ranking_write=excluded.ranking_write WHERE member_media.revision=?',
+  ).bind(
+    c.get('member').id,
+    media.id,
+    input.status,
+    input.rating === null ? null : input.rating * 2,
+    input.season,
+    input.episode,
+    write,
+    input.revision,
+    c.get('member').id,
+    media.id,
+    input.revision,
+  );
+  const [result] = await c.env.DB.batch([
+    update,
+    // Learning catalog counts for an old checkpoint is backfill, not a new viewing.
+    ...(media.personal
+      ? recordProgress(
+          c.env.DB,
+          c.get('member').id,
+          media.id,
+          write,
+          progressUnits(media.kind, media.personal, seasons, previous.results),
+          null,
+        )
+      : []),
+    ...recordProgress(
+      c.env.DB,
       c.get('member').id,
       media.id,
-      input.status,
-      input.rating === null ? null : input.rating * 2,
-      input.season,
-      input.episode,
-      input.revision,
-    )
-    .run();
+      write,
+      progressUnits(media.kind, input, seasons, previous.results),
+    ),
+  ]);
   if (!result.meta.changes)
     throw new ApiError(409, 'CONFLICT', 'Seu progresso mudou. Atualize e tente novamente.');
   return c.json({ ok: true });

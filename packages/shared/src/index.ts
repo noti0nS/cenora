@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export * from './avatars';
+export * from './ranking';
 
 export const personalStatuses = ['want', 'watching', 'watched', 'dropped'] as const;
 export const groupStatuses = ['planned', 'watching', 'watched'] as const;

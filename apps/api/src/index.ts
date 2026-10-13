@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { auth, currentMember } from './auth';
 import { mediaRoutes } from './media';
 import { clubRoutes } from './club';
+import { rankingRoutes } from './ranking';
 import { outboxEnabled } from './mailer';
 import { ApiError, type AppEnv } from './lib';
 import { avatarRoutes } from './avatars';
@@ -54,6 +55,7 @@ app.use('/api/*', async (c, next) => {
 });
 app.route('/api/media', mediaRoutes);
 app.route('/api/club', clubRoutes);
+app.route('/api/club/ranking', rankingRoutes);
 app.all('/api/*', (c) =>
   c.json({ error: { code: 'NOT_FOUND', message: 'Esta ação não foi encontrada.' } }, 404),
 );

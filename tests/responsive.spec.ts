@@ -140,6 +140,13 @@ for (const width of [320, 360, 390, 520, 600, 760, 768, 840, 900, 1024, 1100, 11
     await fits(page.locator('.club-add'));
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
 
+    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await fits(page.getByRole('dialog'));
+    await fits(page.locator('.ranking-controls'));
+    await fits(page.locator('.ranking-roster'));
+    await fits(page.locator('.ranking-badge-grid'));
+    await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+
     await page.getByRole('button', { name: `Perfil de ${memberName}` }).click();
     await fits(page.getByRole('menu'));
     await page.getByRole('menuitem', { name: 'Meu perfil' }).click();

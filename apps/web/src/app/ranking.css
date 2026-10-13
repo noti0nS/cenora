@@ -1,0 +1,252 @@
+/* A quiet, editorial club scoreboard, sharing Cenora's palette and typography. */
+.modal.ranking-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+.ranking-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 24px 0 20px;
+}
+.ranking-controls .segmented-pill button {
+  flex: none;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+.ranking-caption,
+.ranking-caption > span:last-child,
+.ranking-collective,
+.ranking-achievements h3,
+.ranking-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ranking-caption {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.ranking-caption > span:first-child {
+  display: inline-block;
+}
+.ranking-caption > span:first-child::first-letter {
+  text-transform: uppercase;
+}
+.ranking-roster {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+}
+.ranking-row {
+  display: grid;
+  grid-template-columns: 32px 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 12px;
+  border-radius: var(--radius);
+}
+.ranking-mine {
+  background: var(--accent-soft);
+}
+.ranking-position {
+  color: var(--muted);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-leader,
+.ranking-badge {
+  color: var(--accent-text);
+}
+.ranking-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-weight: 700;
+}
+.ranking-person {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ranking-person strong,
+.ranking-score strong {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+}
+.ranking-person strong small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ranking-badge {
+  margin-top: 3px;
+  font-size: 11px;
+}
+.ranking-score {
+  text-align: right;
+}
+.ranking-score small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ranking-collective {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ranking-collective svg {
+  flex: none;
+}
+.ranking-achievements {
+  margin-top: 12px;
+}
+.ranking-achievements h3 {
+  font-size: 15px;
+}
+.ranking-achievements > p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+.ranking-badge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.ranking-achievement {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--muted);
+  text-align: left;
+}
+.ranking-achievement:disabled {
+  cursor: default;
+}
+.ranking-achievement.unlocked {
+  color: var(--ink);
+  background: var(--surface);
+}
+.ranking-achievement[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ranking-achievement-icon {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 3px;
+}
+.unlocked .ranking-achievement-icon {
+  color: var(--accent-text);
+}
+.ranking-achievement strong {
+  font-size: 13px;
+}
+.ranking-achievement small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.ranking-achievement-state {
+  margin-top: auto;
+  padding-top: 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.ranking-participation {
+  margin-top: 24px;
+}
+.ranking-participation label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+.ranking-participation small {
+  display: block;
+  margin: 5px 0 0 26px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ranking-rules {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ranking-rules summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.ranking-rules ul {
+  padding-left: 20px;
+}
+.ranking-rules li + li {
+  margin-top: 7px;
+}
+.ranking-loading {
+  padding: 36px 0;
+  color: var(--muted);
+  text-align: center;
+}
+.ranking-loading button {
+  margin-top: 16px;
+}
+.ranking-notice {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 14px 0;
+}
+@media (max-width: 600px) {
+  .modal.ranking-dialog {
+    width: calc(100vw - 24px);
+  }
+  .ranking-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ranking-row {
+    grid-template-columns: 25px 32px minmax(0, 1fr);
+    gap: 9px;
+    padding: 12px 8px;
+  }
+  .ranking-avatar {
+    width: 32px;
+    height: 32px;
+  }
+  .ranking-score {
+    grid-column: 3;
+    text-align: left;
+  }
+  .ranking-score strong {
+    font-size: 13px;
+  }
+  .ranking-caption {
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .ranking-caption > span:last-child {
+    text-align: right;
+  }
+}
+@media (max-width: 520px) {
+  .modal.ranking-dialog {
+    width: 100%;
+  }
+}
