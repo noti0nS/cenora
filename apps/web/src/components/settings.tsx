@@ -1,14 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Shield, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Member, SessionState } from '@cenora/shared';
+import type { ClubRanking, Member, RankingBadge, SessionState } from '@cenora/shared';
 import { api, json, errorMessage, RequestError } from '@/lib/api';
 import { Modal, Button, Field, CodeReveal } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
 import { TurnstileField } from './turnstile-field';
 import { AvatarPicker } from './avatar-picker';
+import { AchievementCollection, MemberBadge } from './achievement-collection';
 
 function AttachEmail({ onLinked }: { onLinked: () => void }) {
   const [step, setStep] = useState<'email' | 'code'>('email');
@@ -160,6 +161,14 @@ export function SettingsDialog({
   session: SessionState | null;
 }) {
   const qc = useQueryClient();
+  const achievements = useQuery({
+    queryKey: ['ranking', session?.club?.id, member.id, 'movie', 'all'],
+    queryFn: () => api<ClubRanking>('/club/ranking?kind=movie&period=all'),
+    enabled: open && Boolean(session?.club),
+  });
+  const featured = achievements.data?.participation.achievements.find(
+    (award) => award.badge === achievements.data?.participation.badge && award.tier > 0,
+  );
   const [name, setName] = useState(member.name),
     [busy, setBusy] = useState(false),
     [confirm, setConfirm] = useState<{ label: string; run: () => Promise<void> } | null>(null),
@@ -257,6 +266,39 @@ export function SettingsDialog({
               Salvar nome
             </Button>
           </form>
+          <details className="disclosure profile-achievements">
+            <summary>Conquistas neste clube</summary>
+            {achievements.isPending ? (
+              <p className="muted-note">Carregando suas conquistas…</p>
+            ) : achievements.error ? (
+              <p className="error-note">{errorMessage(achievements.error)}</p>
+            ) : (
+              achievements.data && (
+                <AchievementCollection
+                  headingId="profile-achievements-title"
+                  achievements={achievements.data.participation.achievements}
+                  selected={achievements.data.participation.badge}
+                  busy={busy}
+                  onChoose={(badge: RankingBadge | null) =>
+                    void run(async () => {
+                      await api('/club/ranking/participation', json('PATCH', { badge }));
+                      await Promise.all([
+                        qc.invalidateQueries({ queryKey: ['ranking'] }),
+                        qc.invalidateQueries({ queryKey: ['members'] }),
+                      ]);
+                    })
+                  }
+                />
+              )
+            )}
+          </details>
+          <MemberBadge
+            badge={
+              featured && featured.earnedAt !== null
+                ? { badge: featured.badge, tier: featured.tier, earnedAt: featured.earnedAt }
+                : null
+            }
+          />
           <div className="settings-block">
             <h4>Acesso</h4>
             {user ? (

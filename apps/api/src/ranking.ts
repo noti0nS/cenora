@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
+  rankingBadges,
   type ClubRanking,
   type RankingBadge,
   type RankingEntry,
@@ -8,6 +9,7 @@ import {
   type Personal,
 } from '@cenora/shared';
 import { ApiError, avatarFields, body, type AppEnv } from './lib';
+import { clubAchievements } from './achievements';
 
 type Unit = { unit: 'movie' | 'episode' | 'season'; season: number; count: number };
 export function progressUnits(
@@ -163,35 +165,46 @@ rankingRoutes.get('/', async (c) => {
   const roster = rosterResult.results as unknown as RosterRow[];
   const progress = progressResult.results as unknown as ProgressRow[];
   const all = allResult.results as unknown as ProgressRow[];
+  const earned = await clubAchievements(c.env.DB, clubId);
   const participating = new Set(roster.filter((r) => r.ranking_enabled).map((r) => r.id));
   const viewed = all.filter((p) => p.unit !== 'season' && p.total > 0);
-  const badgesFor = (memberId: string): RankingBadge[] => {
+  const progressFor = (memberId: string) => {
     const own = all.filter((p) => p.member_id === memberId && p.total > 0);
-    const badges: RankingBadge[] = [];
-    if (own.some((p) => p.unit === 'movie')) badges.push('debut');
-    if (own.some((p) => p.unit === 'season')) badges.push('credits');
-    if (new Set(own.filter((p) => p.unit !== 'season' && p.rated).map((p) => p.media_id)).size >= 5)
-      badges.push('critic');
-    if (
-      own.some(
-        (p) =>
-          p.unit !== 'season' &&
-          new Set(
-            viewed
-              .filter((v) => v.media_id === p.media_id && participating.has(v.member_id))
-              .map((v) => v.member_id),
-          ).size >= 3,
-      )
-    )
-      badges.push('company');
-    return badges;
+    const counts: Record<RankingBadge, number> = {
+      debut: own.filter((p) => p.unit === 'movie').length,
+      credits: own.filter((p) => p.unit === 'season').reduce((sum, p) => sum + p.total, 0),
+      critic: new Set(own.filter((p) => p.unit !== 'season' && p.rated).map((p) => p.media_id))
+        .size,
+      company: participating.has(memberId)
+        ? own.filter(
+            (p) =>
+              p.unit !== 'season' &&
+              new Set(
+                viewed
+                  .filter((v) => v.media_id === p.media_id && participating.has(v.member_id))
+                  .map((v) => v.member_id),
+              ).size >= 3,
+          ).length
+        : 0,
+    };
+    return (Object.keys(rankingBadges) as RankingBadge[]).map((badge) => {
+      const award = earned.get(memberId)?.find((a) => a.badge === badge);
+      return {
+        badge,
+        count: counts[badge],
+        tier: award?.tier ?? 0,
+        earnedAt: award?.earnedAt ?? null,
+        nextTarget: rankingBadges[badge].targets[award?.tier ?? 0] ?? null,
+      };
+    });
   };
   const entries: RankingEntry[] = roster
     .filter((r) => r.ranking_enabled)
     .map((r) => {
       const rows = progress.filter((p) => p.member_id === r.id);
       const measure = (p: ProgressRow) => (period === 'month' ? p.monthly : p.total);
-      const badges = badgesFor(r.id);
+      const achievements = earned.get(r.id) ?? [];
+      const badges = achievements.map((a) => a.badge);
       return {
         id: r.id,
         name: r.name,
@@ -203,6 +216,8 @@ rankingRoutes.get('/', async (c) => {
         rated: rows.filter((p) => p.unit !== 'season' && measure(p) > 0 && p.rated).length,
         badges,
         badge: r.ranking_badge && badges.includes(r.ranking_badge) ? r.ranking_badge : null,
+        featuredBadge: achievements.find((a) => a.badge === r.ranking_badge) ?? null,
+        achievements,
       };
     });
   entries.sort(
@@ -215,7 +230,7 @@ rankingRoutes.get('/', async (c) => {
         i > 0 && entries[i - 1].count === entries[i].count ? entries[i - 1].position : i + 1;
   }
   const me = roster.find((r) => r.id === c.get('member').id)!;
-  const badges = badgesFor(me.id);
+  const badges = (earned.get(me.id) ?? []).map((a) => a.badge);
   const response: ClubRanking = {
     kind,
     period,
@@ -235,6 +250,7 @@ rankingRoutes.get('/', async (c) => {
       enabled: Boolean(me.ranking_enabled),
       badge: me.ranking_badge && badges.includes(me.ranking_badge) ? me.ranking_badge : null,
       badges,
+      achievements: progressFor(me.id),
     },
   };
   return c.json(response);
@@ -250,14 +266,24 @@ rankingRoutes.patch('/participation', async (c) => {
       })
       .refine((v) => v.enabled !== undefined || v.badge !== undefined),
   );
+  if (input.badge) {
+    const unlocked = await c.env.DB.prepare(
+      'SELECT 1 FROM ranking_achievements WHERE member_id=? AND badge=?',
+    )
+      .bind(c.get('member').id, input.badge)
+      .first();
+    if (!unlocked)
+      throw new ApiError(400, 'BADGE_LOCKED', 'Conquiste este selo antes de usá-lo no perfil.');
+  }
   // Selection is only displayed while its achievement is unlocked. Never trust a client unlock.
   await c.env.DB.prepare(
-    'UPDATE members SET ranking_enabled=COALESCE(?,ranking_enabled),ranking_badge=CASE WHEN ? THEN ? ELSE ranking_badge END WHERE id=? AND club_id=? AND active=1',
+    'UPDATE members SET ranking_enabled=COALESCE(?,ranking_enabled),ranking_badge=CASE WHEN ? THEN ? ELSE ranking_badge END,ranking_badge_auto=CASE WHEN ? THEN 0 ELSE ranking_badge_auto END WHERE id=? AND club_id=? AND active=1',
   )
     .bind(
       input.enabled === undefined ? null : Number(input.enabled),
       Number(input.badge !== undefined),
       input.badge ?? null,
+      Number(input.badge !== undefined),
       c.get('member').id,
       c.get('club').id,
     )

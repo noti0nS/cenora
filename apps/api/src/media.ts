@@ -12,6 +12,7 @@ import {
 import { ApiError, body, checkpoint, id, owner, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
 import { metadataSeasons, progressUnits, recordProgress } from './ranking';
+import { awardAchievements } from './achievements';
 
 type Row = Record<string, any>;
 export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id JOIN media rated ON rated.id=mm.media_id WHERE rated.club_id=? AND rater.club_id=rated.club_id AND rater.active=1 GROUP BY mm.media_id)
@@ -371,6 +372,11 @@ mediaRoutes.put('/:id/personal', async (c) => {
     .bind(c.get('member').id, media.id)
     .all<{ unit: 'movie' | 'episode' | 'season'; season: number; count: number }>();
   const write = id();
+  const beforeAchievements = await c.env.DB.prepare(
+    'SELECT badge,tier FROM ranking_achievements WHERE member_id=?',
+  )
+    .bind(c.get('member').id)
+    .all<{ badge: string; tier: number }>();
   const update = c.env.DB.prepare(
     'INSERT INTO member_media (member_id,media_id,status,half_points,season,episode,revision,ranking_write) SELECT ?,?,?,?,?,?,1,? WHERE ?=0 OR EXISTS(SELECT 1 FROM member_media WHERE member_id=? AND media_id=?) ON CONFLICT(member_id,media_id) DO UPDATE SET status=excluded.status,half_points=excluded.half_points,season=excluded.season,episode=excluded.episode,revision=member_media.revision+1,ranking_write=excluded.ranking_write WHERE member_media.revision=?',
   ).bind(
@@ -406,10 +412,22 @@ mediaRoutes.put('/:id/personal', async (c) => {
       write,
       progressUnits(media.kind, input, seasons, previous.results),
     ),
+    ...awardAchievements(c.env.DB, c.get('club').id, c.get('member').id, write),
   ]);
   if (!result.meta.changes)
     throw new ApiError(409, 'CONFLICT', 'Seu progresso mudou. Atualize e tente novamente.');
-  return c.json({ ok: true });
+  const earned = await c.env.DB.prepare(
+    'SELECT badge,tier,earned_at earnedAt FROM ranking_achievements WHERE member_id=? ORDER BY tier DESC,badge',
+  )
+    .bind(c.get('member').id)
+    .all<{ badge: string; tier: number; earnedAt: number }>();
+  return c.json({
+    ok: true,
+    newAchievements: earned.results.filter(
+      (a) =>
+        !beforeAchievements.results.some((old) => old.badge === a.badge && old.tier === a.tier),
+    ),
+  });
 });
 mediaRoutes.put('/:id/group', async (c) => {
   const input = await body(c, groupSchema);

@@ -1,25 +1,19 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Award, Check, Clapperboard, Flag, Star, Trophy, Users } from 'lucide-react';
+import { Trophy, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  rankingBadges,
-  type ClubRanking,
-  type Member,
-  type RankingBadge,
-  type ShelfKind,
-} from '@cenora/shared';
+import { type ClubRanking, type Member, type RankingBadge, type ShelfKind } from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Avatar } from './avatar';
 import { Button, Modal, Segmented } from './ui';
+import { AchievementCollection, MemberBadge } from './achievement-collection';
 
 const kinds: { value: ShelfKind; label: string }[] = [
   { value: 'movie', label: 'Filmes' },
   { value: 'tv', label: 'Séries' },
   { value: 'anime', label: 'Animes' },
 ];
-const badgeIcons = { debut: Clapperboard, credits: Flag, critic: Star, company: Users };
 const amount = (n: number, singular: string, plural: string) =>
   `${n.toLocaleString('pt-BR')} ${n === 1 ? singular : plural}`;
 
@@ -59,6 +53,7 @@ export function ClubRankingDialog({
     try {
       await api('/club/ranking/participation', json('PATCH', value));
       await qc.invalidateQueries({ queryKey: ['ranking'] });
+      await qc.invalidateQueries({ queryKey: ['members'] });
       if (value.enabled !== undefined)
         toast.success(
           value.enabled
@@ -134,7 +129,6 @@ export function ClubRankingDialog({
             )}
             <ol className="ranking-roster" aria-label="Classificação dos participantes">
               {data.entries.map((entry) => {
-                const Icon = entry.badge ? badgeIcons[entry.badge] : null;
                 return (
                   <li
                     key={entry.id}
@@ -154,12 +148,7 @@ export function ClubRankingDialog({
                         {entry.name}
                         {entry.id === member.id && <small> · você</small>}
                       </strong>
-                      {entry.badge && Icon && (
-                        <span className="ranking-badge">
-                          <Icon size={12} aria-hidden="true" />
-                          {rankingBadges[entry.badge].name}
-                        </span>
-                      )}
+                      <MemberBadge badge={entry.featuredBadge} />
                     </div>
                     <div className="ranking-score">
                       <strong>{amount(entry.count, unit[0], unit[1])}</strong>
@@ -181,39 +170,13 @@ export function ClubRankingDialog({
                 {period === 'month' ? 'neste mês' : 'desde o começo'}.
               </span>
             </p>
-            <section className="ranking-achievements" aria-labelledby="ranking-achievements-title">
-              <h3 id="ranking-achievements-title">
-                <Award size={17} aria-hidden="true" /> Suas pequenas conquistas
-              </h3>
-              <p>Conquistas de todas as categorias. Escolha um selo para acompanhar seu nome.</p>
-              <div className="ranking-badge-grid">
-                {(Object.keys(rankingBadges) as RankingBadge[]).map((badge) => {
-                  const unlocked = data.participation.badges.includes(badge);
-                  const selected = data.participation.badge === badge;
-                  const Icon = badgeIcons[badge];
-                  return (
-                    <button
-                      key={badge}
-                      type="button"
-                      className={`ranking-achievement ${unlocked ? 'unlocked' : ''}`}
-                      aria-pressed={selected}
-                      disabled={!unlocked || busy}
-                      onClick={() => void change({ badge: selected ? null : badge })}
-                    >
-                      <span className="ranking-achievement-icon">
-                        <Icon size={19} aria-hidden="true" />
-                        {selected && <Check size={12} aria-hidden="true" />}
-                      </span>
-                      <strong>{rankingBadges[badge].name}</strong>
-                      <small>{rankingBadges[badge].description}</small>
-                      <span className="ranking-achievement-state">
-                        {selected ? 'Seu selo' : unlocked ? 'Desbloqueada' : 'Ainda por conquistar'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+            <AchievementCollection
+              achievements={data.participation.achievements}
+              selected={data.participation.badge}
+              busy={busy}
+              onChoose={(badge) => void change({ badge })}
+              headingId="ranking-achievements-title"
+            />
             <div className="ranking-participation">
               <label>
                 <input
@@ -239,8 +202,9 @@ export function ClubRankingDialog({
             data real da sessão.
           </li>
           <li>
-            Registros anteriores ao ranking entram apenas em “Desde sempre”. Importar títulos não
-            soma atividade.
+            Registros anteriores ao ranking entram neste mês quando a criação do clube, do perfil ou
+            do título comprova esse mês. Sem um mês comprovável, ficam em “Desde sempre”. Importar
+            títulos não soma atividade.
           </li>
           <li>
             Corrigir para trás reduz a contagem. Remarcar recupera o registro original, sem contar
@@ -251,7 +215,8 @@ export function ClubRankingDialog({
             contagem do catálogo; não inventamos episódios de temporadas anteriores.
           </li>
           <li>
-            As conquistas refletem seu progresso atual. Avaliações altas e baixas valem igual;
+            Conquistas são marcos permanentes do seu perfil neste clube. Corrigir o progresso muda o
+            placar, mas não apaga os selos conquistados. Avaliações altas e baixas valem igual;
             reassistidas não somam novamente.
           </li>
           <li>

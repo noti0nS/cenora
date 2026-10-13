@@ -192,7 +192,12 @@ describe('private club ranking', () => {
     expect(
       result.entries.every((e: any) => e.count === 1 && e.position === 1 && e.rated === 1),
     ).toBe(true);
-    expect(result.participation.badges).toContain('debut');
+    expect(result.participation.badges).not.toContain('debut');
+    expect(result.participation.achievements.find((a: any) => a.badge === 'debut')).toMatchObject({
+      count: 1,
+      tier: 0,
+      nextTarget: 5,
+    });
     expect((await personal(movie.id, 0)).status).toBe(409);
     expect((await ranking()).entries.find((e: any) => e.id === ownerId).count).toBe(1);
     expect(
@@ -242,7 +247,9 @@ describe('private club ranking', () => {
       200,
     );
     expect((await ranking('tv')).entries[0]).toMatchObject({ count: 3, seasons: 1 });
-    expect((await ranking('tv')).participation.badges).toContain('credits');
+    expect(
+      (await ranking('tv')).participation.achievements.find((a: any) => a.badge === 'credits'),
+    ).toMatchObject({ count: 1, tier: 0, nextTarget: 3 });
     await db
       .prepare('UPDATE ranking_events SET recorded_at=1 WHERE media_id=?')
       .bind(show.id)
@@ -290,19 +297,29 @@ describe('private club ranking', () => {
     await personal(movie.id, 0);
     await personal(movie.id, 0, {}, a.cookie);
     await personal(movie.id, 0, {}, b.cookie);
+    for (let i = 0; i < 4; i++) {
+      const extra = await manual('movie', `Outra sessão ${i}`);
+      await personal(extra.id, 0);
+      if (i < 2) {
+        await personal(extra.id, 0, {}, a.cookie);
+        await personal(extra.id, 0, {}, b.cookie);
+      }
+    }
     expect((await ranking()).participation.badges).toContain('company');
     expect((await request('/club/ranking/participation', 'PATCH', { badge: 'debut' })).status).toBe(
       200,
     );
     expect((await ranking()).entries.find((e: any) => e.id === ownerId).badge).toBe('debut');
-    await request('/club/ranking/participation', 'PATCH', { badge: 'critic' });
-    expect((await ranking()).entries.find((e: any) => e.id === ownerId).badge).toBeNull();
+    expect(
+      (await request('/club/ranking/participation', 'PATCH', { badge: 'critic' })).status,
+    ).toBe(400);
+    expect((await ranking()).entries.find((e: any) => e.id === ownerId).badge).toBe('debut');
     expect((await request('/club/ranking/participation', 'PATCH', { enabled: false })).status).toBe(
       200,
     );
     expect((await ranking()).entries).toHaveLength(2);
     expect((await ranking()).participation.enabled).toBe(false);
-    expect((await ranking()).participation.badges).not.toContain('company');
+    expect((await ranking()).participation.badges).toContain('company');
     expect((await request(`/media/${movie.id}`)).status).toBe(200);
     const other = await createClub('Outro');
     expect((await ranking('movie', 'all', other.cookie)).entries).toHaveLength(1);
@@ -310,7 +327,7 @@ describe('private club ranking', () => {
     await request('/club/ranking/participation', 'PATCH', { enabled: true });
     await request(`/club/members/${b.member.id}`, 'DELETE');
     expect((await ranking()).entries).toHaveLength(2);
-    expect((await ranking()).participation.badges).not.toContain('company');
+    expect((await ranking()).participation.badges).toContain('company');
     expect((await request('/club/ranking', 'GET', undefined, '')).status).toBe(401);
     expect((await request('/club/ranking?kind=invalid')).status).toBe(400);
     expect(
@@ -327,13 +344,13 @@ describe('private club ranking', () => {
     expect((await request('/club/ranking/participation', 'PATCH', {})).status).toBe(400);
   });
   it('unlocks the critic badge for watched titles only, irrespective of rating value', async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       const movie = await manual('movie', `Filme ${i}`);
       await personal(movie.id, 0, {
-        status: i === 4 ? 'want' : 'watched',
+        status: i === 9 ? 'want' : 'watched',
         rating: i % 2 ? 10 : 0.5,
       });
-      if (i === 4) {
+      if (i === 9) {
         expect((await ranking()).participation.badges).not.toContain('critic');
         await personal(movie.id, 1, { rating: 0.5 });
       }
@@ -449,6 +466,163 @@ describe('private club ranking', () => {
           .first()
       )?.count,
     ).toBe(0);
+    const repair = (await readFile('migrations/0012_recover_current_month_ranking.sql', 'utf8'))
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await history.batch(repair.map((s) => history.prepare(s)));
+    expect(
+      (
+        await history
+          .prepare('SELECT COUNT(*) count FROM ranking_events WHERE recorded_at IS NULL')
+          .first()
+      )?.count,
+    ).toBe(0);
+    for (let i = 0; i < 4; i++) {
+      await history.batch([
+        history
+          .prepare(
+            "INSERT INTO media(id,club_id,title,normalized_title,kind,created_by) VALUES (?,'c',?,?,'movie','m')",
+          )
+          .bind(`f${i}`, `Filme ${i}`, `filme ${i}`),
+        history
+          .prepare("INSERT INTO member_media(member_id,media_id,status) VALUES ('m',?,'watched')")
+          .bind(`f${i}`),
+        history
+          .prepare(
+            "INSERT INTO ranking_units(member_id,media_id,unit,season,current_count,high_water) VALUES ('m',?,'movie',0,1,1)",
+          )
+          .bind(`f${i}`),
+      ]);
+    }
+    const levels = (await readFile('migrations/0013_achievement_levels.sql', 'utf8'))
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await history.batch(levels.map((s) => history.prepare(s)));
+    expect(
+      (
+        await history
+          .prepare("SELECT badge,tier FROM ranking_achievements WHERE member_id='m'")
+          .all()
+      ).results,
+    ).toEqual([{ badge: 'debut', tier: 1 }]);
+    expect(
+      (await history.prepare("SELECT ranking_badge FROM members WHERE id='m'").first())
+        ?.ranking_badge,
+    ).toBe('debut');
+  });
+  it('repairs undated history only with a proven current Brasília month and never replaces known dates', async () => {
+    const movie = await manual();
+    await personal(movie.id, 0);
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=NULL WHERE media_id=?')
+      .bind(movie.id)
+      .run();
+    const other = await createClub('Clube antigo');
+    const own = (await (
+      await request('/club/lists', 'GET', undefined, other.cookie)
+    ).json()) as any[];
+    const old = (await (
+      await request(
+        '/media/manual',
+        'POST',
+        { title: 'Registro antigo', kind: 'movie', listId: own[0].id },
+        other.cookie,
+      )
+    ).json()) as any;
+    await personal(old.id, 0, {}, other.cookie);
+    await db
+      .prepare("UPDATE clubs SET created_at=datetime('now','-2 months') WHERE id=?")
+      .bind(other.club.id)
+      .run();
+    await db
+      .prepare("UPDATE members SET created_at=datetime('now','-2 months') WHERE club_id=?")
+      .bind(other.club.id)
+      .run();
+    await db
+      .prepare("UPDATE media SET created_at=datetime('now','-2 months') WHERE id=?")
+      .bind(old.id)
+      .run();
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=NULL WHERE media_id=?')
+      .bind(old.id)
+      .run();
+    const known = await manual('movie', 'Data conhecida');
+    await personal(known.id, 0);
+    await db
+      .prepare('UPDATE ranking_events SET recorded_at=1 WHERE media_id=?')
+      .bind(known.id)
+      .run();
+    const repair = (await readFile('migrations/0012_recover_current_month_ranking.sql', 'utf8'))
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await db.batch(repair.map((s) => db.prepare(s)));
+    expect((await ranking()).entries[0].count).toBe(1);
+    expect((await ranking('movie', 'all')).entries[0].count).toBe(2);
+    expect((await ranking('movie', 'month', other.cookie)).entries[0].count).toBe(0);
+    expect((await ranking('movie', 'all', other.cookie)).entries[0].count).toBe(1);
+    expect(
+      (
+        await db
+          .prepare('SELECT recorded_at FROM ranking_events WHERE media_id=?')
+          .bind(known.id)
+          .first()
+      )?.recorded_at,
+    ).toBe(1);
+    const once = await db
+      .prepare('SELECT recorded_at FROM ranking_events WHERE media_id=?')
+      .bind(movie.id)
+      .first();
+    await db.batch(repair.map((s) => db.prepare(s)));
+    expect(
+      await db
+        .prepare('SELECT recorded_at FROM ranking_events WHERE media_id=?')
+        .bind(movie.id)
+        .first(),
+    ).toEqual(once);
+  });
+  it('awards bronze, silver and gold exactly once, preserves earned milestones and exposes the profile badge', async () => {
+    let first = '';
+    for (let i = 0; i < 30; i++) {
+      const movie = await manual('movie', `Marco ${i}`);
+      if (i === 0) first = movie.id;
+      const response = await personal(movie.id, 0);
+      expect(response.status).toBe(200);
+      const result = (await response.json()) as any;
+      if ([4, 14, 29].includes(i)) expect(result.newAchievements).toHaveLength(1);
+      else expect(result.newAchievements).toEqual([]);
+    }
+    const result = await ranking();
+    expect(result.participation.achievements.find((a: any) => a.badge === 'debut')).toMatchObject({
+      count: 30,
+      tier: 3,
+      nextTarget: null,
+    });
+    const featured = result.entries[0].featuredBadge;
+    expect(featured).toMatchObject({ badge: 'debut', tier: 3 });
+    expect(((await (await request('/club/members')).json()) as any[])[0].featuredBadge).toEqual(
+      featured,
+    );
+    await personal(first, 1, { status: 'want' });
+    expect(
+      (await ranking()).participation.achievements.find((a: any) => a.badge === 'debut'),
+    ).toMatchObject({ count: 29, tier: 3 });
+    const remarked = await personal(first, 2);
+    expect(((await remarked.json()) as any).newAchievements).toEqual([]);
+    expect(
+      (
+        await db
+          .prepare('SELECT COUNT(*) count FROM ranking_achievements WHERE member_id=?')
+          .bind(ownerId)
+          .first()
+      )?.count,
+    ).toBe(3);
+    await request('/club/ranking/participation', 'PATCH', { badge: null });
+    const next = await manual('movie', 'Mais uma sessão');
+    await personal(next.id, 0);
+    expect((await ranking()).entries[0].featuredBadge).toBeNull();
   });
 });
 describe('private profile avatars on a real Worker + D1 + R2 runtime', () => {

@@ -19,6 +19,7 @@ import {
 import { lists as listTable } from './schema';
 import { attach, registerCatalog, requireList } from './media';
 import { serveAvatar } from './avatars';
+import { clubAchievements } from './achievements';
 
 export const clubRoutes = new Hono<AppEnv>();
 
@@ -127,9 +128,10 @@ clubRoutes.delete('/lists/:id/items/:mediaId', async (c) => {
 clubRoutes.get('/members', async (c) => {
   // Todos veem quem faz parte; só o dono sabe quem tem acesso próprio (conta).
   const isOwner = c.get('member').role === 'owner';
+  const achievements = await clubAchievements(c.env.DB, c.get('club').id);
   const rows = (
     await c.env.DB.prepare(
-      'SELECT id,name,role,active,avatar,avatar_revision,(user_id IS NOT NULL) linked FROM members WHERE club_id=? AND active=1 ORDER BY role DESC,name',
+      'SELECT id,name,role,active,avatar,avatar_revision,ranking_badge,(user_id IS NOT NULL) linked FROM members WHERE club_id=? AND active=1 ORDER BY role DESC,name',
     )
       .bind(c.get('club').id)
       .all<{
@@ -140,10 +142,13 @@ clubRoutes.get('/members', async (c) => {
         linked: number;
         avatar: string | null;
         avatar_revision: number;
+        ranking_badge: string | null;
       }>()
-  ).results.map(({ avatar, avatar_revision, ...row }) => ({
+  ).results.map(({ avatar, avatar_revision, ranking_badge, ...row }) => ({
     ...row,
     ...avatarFields(row.id, avatar, avatar_revision),
+    achievements: achievements.get(row.id) ?? [],
+    featuredBadge: achievements.get(row.id)?.find((a) => a.badge === ranking_badge) ?? null,
   }));
   return c.json(isOwner ? rows : rows.map(({ linked: _linked, ...row }) => row));
 });

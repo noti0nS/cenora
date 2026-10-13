@@ -76,18 +76,27 @@ known episodes, with completed catalog seasons as a secondary metric. Monthly
 registration uses Brasília's calendar (UTC−3), not an inferred watch date. Ties
 share a position, and members without records have no position yet.
 
-Migration **0011** backfills old personal checkpoints into the all-time ranking
-without assigning activity dates. New personal writes update a compact episode-range
+Migration **0011** backfills old personal checkpoints without assigning activity
+dates. **0012** recovers the current month for undated records whose club, profile
+or title was created during this Brasília month: registrations cannot predate
+any of them. Without this evidence, undated records remain in the all-time
+ranking. Known dates are never replaced.
+New personal writes update a compact episode-range
 ledger atomically with the existing revision check. Corrections reduce totals;
 re-marking restores the first registration without awarding repeats or moving it
 to a new month. Group edits and imports do not award personal activity. Manual
 shows count only known episodes, never assumed earlier seasons or completions.
 
-Four achievements reflect current progress: first movie, completed season, five
-rated watched/started titles, and a title watched by three participating active
-members. A member can select one unlocked badge or opt out per club. Opting out
+Migration **0013** adds permanent, per-profile achievements with bronze, silver,
+and gold levels: movies (5/15/30), catalog seasons (3/10/25), rated watched/started
+titles (10/25/50), and distinct titles watched by three participating active members
+(3/8/15). Milestones are awarded atomically on successful personal writes, seeded
+from existing progress, and never revoked by corrections or opting out. A new
+achievement automatically equips a badge until the member explicitly chooses a
+badge or none. Collections show current progress and the next target in the ranking
+and profile; equipped badges also appear in the club roster. A member can opt out per club. Opting out
 preserves progress but removes the member from the leaderboard and collective
-summary. Achievements are not permanent rewards for corrected/removed records.
+summary, but preserves earned badges and their original award dates.
 No public sharing, global XP, daily streaks or rewatch points are introduced.
 
 ### Profile pictures

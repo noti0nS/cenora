@@ -21,6 +21,7 @@ import { api, json, errorMessage } from '@/lib/api';
 import { extractInviteToken, inviteLink } from '@/lib/invite';
 import { Button, CodeReveal, Field, Modal, Segmented, copyCode } from './ui';
 import { Avatar } from './avatar';
+import { MemberBadge } from './achievement-collection';
 
 type Roster = (Member & { active: number; linked?: number })[];
 type Tab = 'people' | 'invite' | 'settings';
@@ -264,6 +265,7 @@ export function ClubsDialog({
             <Avatar member={person} />
             <span className="roster-name">
               {person.name}
+              <MemberBadge badge={person.featuredBadge} />
               <small>
                 {person.id === member.id && 'Você'}
                 {person.id === member.id && (person.role === 'owner' || isOwner) && ' · '}

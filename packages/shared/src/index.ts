@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EarnedBadge } from './ranking';
 export * from './avatars';
 export * from './ranking';
 
@@ -119,6 +120,8 @@ export interface Member {
   role: 'owner' | 'member';
   avatarUrl?: string | null;
   avatarRevision?: number;
+  featuredBadge?: EarnedBadge | null;
+  achievements?: EarnedBadge[];
 }
 export interface Club {
   id: string;

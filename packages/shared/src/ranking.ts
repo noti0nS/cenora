@@ -1,21 +1,45 @@
 import type { Member, ShelfKind } from './index';
 
 export const rankingBadges = {
-  debut: { name: 'Sessão de estreia', description: 'Veja seu primeiro filme no clube.' },
+  debut: {
+    name: 'Repertório de cinema',
+    description: 'Filmes diferentes que você viu neste clube.',
+    unit: 'filmes vistos',
+    targets: [5, 15, 30],
+  },
   credits: {
     name: 'Créditos finais',
-    description: 'Conclua uma temporada com contagem conhecida.',
+    description: 'Temporadas concluídas, com contagem conhecida de episódios.',
+    unit: 'temporadas concluídas',
+    targets: [3, 10, 25],
   },
   critic: {
     name: 'Olhar crítico',
-    description: 'Avalie cinco títulos que você já começou a assistir.',
+    description: 'Títulos diferentes que você assistiu ou começou e avaliou.',
+    unit: 'títulos avaliados',
+    targets: [10, 25, 50],
   },
   company: {
     name: 'Em boa companhia',
-    description: 'Veja um título que outros dois participantes também viram.',
+    description: 'Títulos que você e pelo menos outros dois participantes viram.',
+    unit: 'histórias em comum',
+    targets: [3, 8, 15],
   },
 } as const;
 export type RankingBadge = keyof typeof rankingBadges;
+export const achievementLevels = ['Bronze', 'Prata', 'Ouro'] as const;
+export interface EarnedBadge {
+  badge: RankingBadge;
+  tier: number;
+  earnedAt: number;
+}
+export interface AchievementProgress {
+  badge: RankingBadge;
+  count: number;
+  tier: number;
+  earnedAt: number | null;
+  nextTarget: number | null;
+}
 export interface RankingEntry extends Member {
   position: number | null;
   count: number;
@@ -23,6 +47,8 @@ export interface RankingEntry extends Member {
   seasons: number;
   badges: RankingBadge[];
   badge: RankingBadge | null;
+  featuredBadge: EarnedBadge | null;
+  achievements: EarnedBadge[];
 }
 export interface ClubRanking {
   kind: ShelfKind;
@@ -30,5 +56,10 @@ export interface ClubRanking {
   month: string;
   entries: RankingEntry[];
   clubTitles: number;
-  participation: { enabled: boolean; badge: RankingBadge | null; badges: RankingBadge[] };
+  participation: {
+    enabled: boolean;
+    badge: RankingBadge | null;
+    badges: RankingBadge[];
+    achievements: AchievementProgress[];
+  };
 }

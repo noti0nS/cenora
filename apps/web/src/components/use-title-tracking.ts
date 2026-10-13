@@ -1,6 +1,14 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
-import type { GroupStatus, MediaDetails, PersonalStatus } from '@cenora/shared';
+import {
+  achievementLevels,
+  rankingBadges,
+  type EarnedBadge,
+  type GroupStatus,
+  type MediaDetails,
+  type PersonalStatus,
+} from '@cenora/shared';
+import { toast } from 'sonner';
 import { api, json } from '@/lib/api';
 import { useAutosave } from '@/lib/tracking';
 
@@ -33,17 +41,30 @@ export function useTitleTracking(data: MediaDetails) {
       qc.invalidateQueries({ queryKey: ['detail', data.id] }),
       qc.invalidateQueries({ queryKey: ['media'] }),
       qc.invalidateQueries({ queryKey: ['ranking'] }),
+      qc.invalidateQueries({ queryKey: ['members'] }),
     ]);
     return qc.getQueryData<MediaDetails>(['detail', data.id]) ?? null;
   };
   const personal = useAutosave(
     personalOf(data),
     data.personal?.revision ?? 0,
-    (value, revision) =>
-      api(`/media/${data.id}/personal`, {
-        ...json('PUT', { ...value, revision }),
-        keepalive: true,
-      }),
+    async (value, revision) => {
+      const result = await api<{ newAchievements?: EarnedBadge[] }>(`/media/${data.id}/personal`, {
+          ...json('PUT', { ...value, revision }),
+          keepalive: true,
+        }),
+        earned = result.newAchievements ?? [];
+      const seen = new Set<string>();
+      for (const award of earned) {
+        if (seen.has(award.badge)) continue;
+        seen.add(award.badge);
+        toast.success('Conquista desbloqueada!', {
+          description: `${rankingBadges[award.badge].name} · ${achievementLevels[award.tier - 1]}`,
+          duration: 5500,
+        });
+      }
+      return result;
+    },
     async () => {
       const fresh = await refresh();
       return fresh ? { value: personalOf(fresh), revision: fresh.personal?.revision ?? 0 } : null;

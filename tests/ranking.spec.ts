@@ -35,6 +35,24 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     })
   ).json();
   const friend = await browser.newContext();
+  const extras: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const extra = await (
+      await page.request.post('/api/media/manual', {
+        headers,
+        data: { title: `Sessão anterior ${i}`, kind: 'movie', listId: lists[0].id },
+      })
+    ).json();
+    extras.push(extra.id);
+    expect(
+      (
+        await page.request.put(`/api/media/${extra.id}/personal`, {
+          headers,
+          data: { status: 'watched', rating: 8, season: null, episode: null, revision: 0 },
+        })
+      ).status(),
+    ).toBe(200);
+  }
   try {
     expect(
       (
@@ -44,6 +62,15 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
         })
       ).status(),
     ).toBe(201);
+    for (const id of extras)
+      expect(
+        (
+          await friend.request.put(`${origin}/api/media/${id}/personal`, {
+            headers,
+            data: { status: 'watched', rating: 8, season: null, episode: null, revision: 0 },
+          })
+        ).status(),
+      ).toBe(200);
     expect(
       (
         await friend.request.put(`${origin}/api/media/${movie.id}/personal`, {
@@ -59,19 +86,29 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     );
     await page.getByRole('button', { name: 'Já vi', exact: true }).click();
     await saved;
+    await expect(page.getByText('Conquista desbloqueada!', { exact: true })).toBeVisible();
     await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Ranking do clube' });
     await expect(dialog.locator('.ranking-row')).toHaveCount(2);
     await expect(dialog.getByLabel('1º lugar', { exact: true })).toHaveCount(2);
     await expect(dialog.locator('.ranking-mine')).toContainText('Marina');
-    await expect(dialog.locator('.ranking-mine')).toContainText('1 filme');
-    await expect(dialog.locator('.ranking-collective')).toContainText('1 título diferente');
-    const debut = dialog.getByRole('button', { name: /Sessão de estreia/ });
+    await expect(dialog.locator('.ranking-mine')).toContainText('5 filmes');
+    await expect(dialog.locator('.ranking-collective')).toContainText('5 títulos diferentes');
+    await expect(dialog.locator('.ranking-mine .ranking-badge')).toContainText(
+      'Repertório de cinema',
+    );
+    await dialog.getByRole('button', { name: 'Remover selo Repertório de cinema' }).click();
+    const debut = dialog.getByRole('button', { name: /selo Repertório de cinema/ });
     await debut.click();
     await expect(debut).toHaveAttribute('aria-pressed', 'true');
-    await expect(dialog.locator('.ranking-mine .ranking-badge')).toHaveText('Sessão de estreia');
+    await expect(dialog.locator('.ranking-mine .ranking-badge')).toContainText(
+      'Repertório de cinema',
+    );
     await expect(dialog.getByRole('button', { name: /Créditos finais/ })).toBeDisabled();
+    await expect(
+      dialog.getByRole('progressbar', { name: 'Progresso de Repertório de cinema' }),
+    ).toHaveAttribute('aria-valuemax', '15');
     await mkdir('artifacts', { recursive: true });
     await page.screenshot({ path: 'artifacts/ranking-desktop-dark.png', animations: 'disabled' });
     await dialog.getByRole('button', { name: 'Séries', exact: true }).click();
@@ -80,7 +117,7 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await expect(dialog.locator('.ranking-mine')).toContainText('0 episódios');
     await dialog.getByRole('button', { name: 'Filmes', exact: true }).click();
     await dialog.getByRole('button', { name: 'Desde sempre', exact: true }).click();
-    await expect(dialog.locator('.ranking-mine')).toContainText('1 filme');
+    await expect(dialog.locator('.ranking-mine')).toContainText('5 filmes');
     await dialog.getByRole('checkbox', { name: 'Participar do ranking deste clube' }).uncheck();
     await expect(dialog.locator('.ranking-row')).toHaveCount(1);
     await expect(dialog.locator('.ranking-mine')).toHaveCount(0);
@@ -107,6 +144,17 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     );
     await expect(dialog.locator('.ranking-mine')).toContainText('1 episódio');
     await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await page.getByRole('button', { name: 'Perfil de Marina' }).click();
+    await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
+    const profile = page.getByRole('dialog', { name: 'Seu pequeno espaço' });
+    await profile.getByText('Conquistas neste clube', { exact: true }).click();
+    await expect(
+      profile.getByRole('progressbar', { name: 'Progresso de Repertório de cinema' }),
+    ).toHaveAttribute('aria-valuemax', '15');
+    await expect(
+      profile.getByRole('button', { name: 'Remover selo Repertório de cinema' }),
+    ).toBeVisible();
+    await profile.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('button', { name: 'Perfil de Marina' }).click();
     await page.getByRole('menuitem', { name: 'Usar tema claro' }).click();
     await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();

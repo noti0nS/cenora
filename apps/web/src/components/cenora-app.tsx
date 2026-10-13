@@ -490,12 +490,13 @@ function App() {
                 <span>{session.data?.club?.name}</span>
               </button>
               <button
-                className="icon-button ranking-trigger"
+                className="ranking-trigger"
                 aria-label="Ranking do clube"
                 title="Ranking do clube"
                 onClick={() => setRankingOpen(true)}
               >
                 <Trophy size={18} />
+                <span>Conquistas</span>
               </button>
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
