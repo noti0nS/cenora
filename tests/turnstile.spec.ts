@@ -45,6 +45,7 @@ for (const failure of ['script', 'widget', 'render', 'stalled'] as const) {
     });
     if (failure === 'stalled') await page.clock.install();
     await page.goto('/');
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     await page.getByLabel('Seu e-mail').fill('security@cenora.test');
     const send = page.getByRole('button', { name: 'Enviar código' });
     await expect(send).toBeDisabled();

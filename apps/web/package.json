@@ -15,6 +15,7 @@
     "@radix-ui/react-dropdown-menu": "latest",
     "@radix-ui/react-popover": "latest",
     "@tanstack/react-query": "latest",
+    "atropos": "^2.0.2",
     "clsx": "latest",
     "lucide-react": "latest",
     "motion": "latest",

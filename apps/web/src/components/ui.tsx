@@ -13,6 +13,7 @@ export function Modal({
   description,
   children,
   className,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,7 @@ export function Modal({
   description?: string;
   children: React.ReactNode;
   className?: string;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <Dialog.Root
@@ -32,6 +34,7 @@ export function Modal({
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content
           className={clsx('modal', className)}
+          onCloseAutoFocus={onCloseAutoFocus}
           onOpenAutoFocus={(event) => {
             const target = (event.currentTarget as HTMLElement)?.querySelector<HTMLElement>(
               '[data-autofocus]',

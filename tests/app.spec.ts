@@ -492,6 +492,7 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await mockTurnstile(context);
     const page = await context.newPage();
     await page.goto('http://127.0.0.1:8788');
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     await page.getByLabel('Seu e-mail').fill('zoe@cenora.test');
     await page.getByRole('button', { name: 'Enviar código' }).click();
     await page.getByLabel('Código de 6 dígitos').fill(await outboxCodeFor('zoe@cenora.test'));
@@ -650,6 +651,7 @@ test('email resends use a fresh Turnstile token without leaving the code screen'
     const page = await context.newPage();
     await page.clock.install();
     await page.goto('http://127.0.0.1:8788');
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     await page.getByLabel('Seu e-mail').fill('resend@cenora.test');
     await page.getByRole('button', { name: 'Enviar código' }).click();
     await expect(page.getByLabel('Código de 6 dígitos')).toBeVisible();
@@ -666,5 +668,110 @@ test('email resends use a fresh Turnstile token without leaving the code screen'
     expect(sentTokens[1]).not.toBe(sentTokens[0]);
   } finally {
     await context.close();
+  }
+});
+
+test('landing previews the shelf and opens the existing access flows on mobile', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    reducedMotion: 'reduce',
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto('/');
+    await expect(
+      page.getByRole('heading', { name: 'Boas histórias. Boa companhia.' }),
+    ).toBeVisible();
+    const demoButton = page.getByRole('button', { name: 'Experimente dar uma nota' });
+    await demoButton.click();
+    await expect(page.getByRole('dialog', { name: 'Interestelar' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(demoButton).toBeFocused();
+    await page.getByRole('tab', { name: /Séries/ }).click();
+    await expect(page.getByRole('tabpanel')).toContainText('Um episódio de cada vez.');
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '6');
+    await page.getByRole('button', { name: 'Episódio 7', exact: true }).click();
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '7');
+    await page.getByRole('button', { name: 'Episódio 7', exact: true }).click();
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '6');
+    await page.getByRole('tab', { name: /Filmes/ }).click();
+    await expect(page.getByRole('tabpanel').getByRole('img')).toHaveCount(3);
+    const imagesLoaded = await page
+      .locator('.landing-posters img')
+      .evaluateAll((images) =>
+        images.every(
+          (image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+        ),
+      );
+    expect(imagesLoaded).toBe(true);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.getByRole('button', { name: 'Experimentar uma nota para Interestelar' }).click();
+    const preview = page.getByRole('dialog', { name: 'Interestelar' });
+    await expect(preview).toBeVisible();
+    await preview.getByRole('slider', { name: 'Sua nota' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(preview.locator('output')).toHaveText('8,5');
+    await page.keyboard.press('Escape');
+    await expect(preview).not.toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Experimentar uma nota para Interestelar' }),
+    ).toBeFocused();
+    await page.getByRole('button', { name: 'Tenho um código de convite', exact: true }).click();
+    await expect(page.getByLabel('Código do clube', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Voltar à apresentação' }).click();
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+    await expect(page.getByLabel('Seu e-mail')).toBeVisible();
+    const logo = await page.locator('.access-brand-header .wordmark').boundingBox();
+    const back = await page.getByRole('button', { name: 'Voltar à apresentação' }).boundingBox();
+    const heading = await page
+      .getByRole('heading', { name: 'Boas histórias. Boa companhia.' })
+      .boundingBox();
+    expect(logo!.x + logo!.width).toBeLessThan(back!.x);
+    expect(back!.y + back!.height).toBeLessThan(heading!.y);
+  } finally {
+    await context.close();
+  }
+});
+
+test('landing uses Atropos and matches the access theme in both modes', async ({ browser }) => {
+  for (const theme of ['dark', 'light']) {
+    const context = await browser.newContext();
+    try {
+      await context.addInitScript((value) => localStorage.setItem('watchlist:theme', value), theme);
+      const page = await context.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto('/');
+      await expect(page.locator('.landing-page')).toBeVisible();
+      await page.getByRole('button', { name: 'Experimente dar uma nota' }).click();
+      await expect(page.getByRole('dialog', { name: 'Interestelar' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      const background = await page
+        .locator('.landing-page')
+        .evaluate((element) => getComputedStyle(element).backgroundColor);
+      const parallax = page.locator('.landing-parallax');
+      await parallax.hover();
+      await expect(parallax).toHaveClass(/atropos-active/);
+      await page.getByRole('tab', { name: /Filmes/ }).focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.getByRole('tab', { name: /Séries/ })).toBeFocused();
+      await expect(page.getByRole('tab', { name: /Séries/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await expect(page.getByRole('tabpanel')).toContainText('Um episódio de cada vez.');
+      await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await expect(page.getByLabel('Seu e-mail')).toBeVisible();
+      expect(
+        await page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).toBe(background);
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
   }
 });

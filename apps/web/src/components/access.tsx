@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Film,
+  ArrowLeft,
   ArrowRight,
   KeyRound,
   Copy,
@@ -29,6 +30,7 @@ import { Button, Field, copyCode } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
 import { TurnstileField } from './turnstile-field';
 import { Wordmark } from './brand';
+import { Landing } from './landing';
 
 const schema = z.object({
   name: displayName,
@@ -549,6 +551,7 @@ function Door({
     defaultValues: { name: '', code: '', recoveryCode: '' },
   });
   const [mode, setMode] = useState<DoorMode>('email');
+  const [showLanding, setShowLanding] = useState(true);
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -564,7 +567,7 @@ function Door({
   } | null>(null);
   const [showClubCode, setShowClubCode] = useState(false);
   const [showRecoveryCode, setShowRecoveryCode] = useState(false);
-  const turnstile = useTurnstile(mode === 'email');
+  const turnstile = useTurnstile(!showLanding && mode === 'email');
   const [tokenSpent, setTokenSpent] = useState(false);
   const resetTurnstile = turnstile.reset;
   useEffect(() => {
@@ -680,6 +683,15 @@ function Door({
       setError(errorMessage(e));
     }
   });
+  if (showLanding)
+    return (
+      <Landing
+        onStart={(nextMode) => {
+          setMode(nextMode);
+          setShowLanding(false);
+        }}
+      />
+    );
   return (
     <main className="access-page">
       <div className="access-decoration" aria-hidden="true">
@@ -694,7 +706,14 @@ function Door({
         <span className="access-dot" />
       </div>
       <section className="access-card">
-        <Wordmark />
+        <div className="access-brand-header">
+          <Wordmark />
+          {!result && (
+            <button className="access-back" onClick={() => setShowLanding(true)}>
+              <ArrowLeft size={14} /> Voltar à apresentação
+            </button>
+          )}
+        </div>
         {result ? (
           <Codes {...result} onDone={() => onEnter(result.member, result.club)} />
         ) : mode === 'email' ? (
