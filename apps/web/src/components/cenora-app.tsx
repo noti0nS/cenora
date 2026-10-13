@@ -707,6 +707,7 @@ function App() {
             onClose={() => navigate({ media: null })}
             catalogAvailable={Boolean(session.data?.catalogAvailable)}
             clubName={session.data?.club?.name ?? null}
+            canRemove={member.role === 'owner'}
           />
           <Roleta
             open={spinning}

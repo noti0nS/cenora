@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
-import { ExternalLink, Link2, Loader2, Pencil, Share2, X } from 'lucide-react';
+import { ExternalLink, Link2, Loader2, Pencil, Share2, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CatalogResult, Media, MediaDetails } from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
@@ -23,12 +23,14 @@ export function TitleStage({
   onClose,
   catalogAvailable,
   clubName,
+  canRemove,
 }: {
   id: string | null;
   preview: Media | null;
   onClose: () => void;
   catalogAvailable: boolean;
   clubName: string | null;
+  canRemove: boolean;
 }) {
   const query = useQuery({
     queryKey: ['detail', id],
@@ -100,6 +102,8 @@ export function TitleStage({
                             data={query.data}
                             catalogAvailable={catalogAvailable}
                             clubName={clubName}
+                            canRemove={canRemove}
+                            onRemoved={onClose}
                           />
                         ) : (
                           <Pending title={title} kind={preview?.kind} />
@@ -162,16 +166,22 @@ function Loaded({
   data,
   catalogAvailable,
   clubName,
+  canRemove,
+  onRemoved,
 }: {
   data: MediaDetails;
   catalogAvailable: boolean;
   clubName: string | null;
+  canRemove: boolean;
+  onRemoved: () => void;
 }) {
   const qc = useQueryClient();
   const tracking = useTitleTracking(data);
   const [personId, setPersonId] = useState<number | null>(null),
     [linking, setLinking] = useState(false),
-    [editing, setEditing] = useState(false);
+    [editing, setEditing] = useState(false),
+    [confirmRemoval, setConfirmRemoval] = useState(false),
+    [removing, setRemoving] = useState(false);
   const refresh = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ['detail', data.id] }),
@@ -185,6 +195,26 @@ function Loaded({
     setLinking(false);
     await refresh();
     toast.success('Título conectado ao catálogo. Suas notas continuam aqui.');
+  };
+  const remove = async () => {
+    setRemoving(true);
+    try {
+      await api(`/media/${data.id}`, json('DELETE', { revision: data.revision }));
+    } catch (error) {
+      toast.error(errorMessage(error));
+      setRemoving(false);
+      setConfirmRemoval(false);
+      void refresh();
+      return;
+    }
+    await qc.cancelQueries({ queryKey: ['detail', data.id] });
+    setConfirmRemoval(false);
+    onRemoved();
+    qc.removeQueries({ queryKey: ['detail', data.id] });
+    void qc.invalidateQueries({ queryKey: ['media'] });
+    void qc.invalidateQueries({ queryKey: ['counts'] });
+    void qc.invalidateQueries({ queryKey: ['lists'] });
+    toast.success('Título removido da estante.');
   };
   const isTv = data.kind === 'tv';
   const episodeCount = data.seasons.reduce((n, s) => n + s.episodes, 0);
@@ -204,6 +234,17 @@ function Loaded({
         </p>
         <div className="stage-head-end">
           <ShareButton data={data} clubName={clubName} />
+          {canRemove && (
+            <button
+              type="button"
+              className="text-button danger"
+              disabled={tracking.saving || removing}
+              onClick={() => setConfirmRemoval(true)}
+            >
+              <Trash2 size={14} />
+              Remover da estante
+            </button>
+          )}
         </div>
       </div>
       <m.h2
@@ -338,6 +379,32 @@ function Loaded({
           )}
         </div>
       )}
+      <Modal
+        open={confirmRemoval}
+        onClose={() => !removing && setConfirmRemoval(false)}
+        title="Remover da estante?"
+        description={`“${data.title}” será removido para todo o clube, junto com as notas e o progresso de todos. Esta ação não pode ser desfeita.`}
+      >
+        <div className="stack">
+          <Button
+            className="secondary"
+            disabled={removing}
+            data-autofocus
+            onClick={() => setConfirmRemoval(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            className="secondary danger"
+            busy={removing}
+            disabled={tracking.saving}
+            onClick={remove}
+          >
+            <Trash2 size={16} />
+            Remover definitivamente
+          </Button>
+        </div>
+      </Modal>
       <Modal
         open={linking}
         onClose={() => setLinking(false)}

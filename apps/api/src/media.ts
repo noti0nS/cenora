@@ -9,7 +9,7 @@ import {
   type Media,
   type MediaDetails,
 } from '@cenora/shared';
-import { ApiError, body, checkpoint, id, type AppEnv } from './lib';
+import { ApiError, body, checkpoint, id, owner, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
 
 type Row = Record<string, any>;
@@ -323,6 +323,21 @@ mediaRoutes.get('/:id', async (c) => {
     lists: lists.results.map((l) => l.list_id),
     stale,
   });
+});
+mediaRoutes.delete('/:id', async (c) => {
+  owner(c);
+  const input = await body(c, z.object({ revision: z.number().int().nonnegative() }));
+  const { media } = await getMedia(c, c.req.param('id'));
+  const result = await c.env.DB.prepare('DELETE FROM media WHERE id=? AND club_id=? AND revision=?')
+    .bind(media.id, c.get('club').id, input.revision)
+    .run();
+  if (!result.meta.changes)
+    throw new ApiError(
+      409,
+      'CONFLICT',
+      'Este título mudou. Atualize e confirme a remoção novamente.',
+    );
+  return c.json({ ok: true });
 });
 mediaRoutes.put('/:id/personal', async (c) => {
   const input = await body(c, personalSchema);

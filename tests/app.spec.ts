@@ -260,6 +260,45 @@ test('catalog-unavailable manual show keeps a simple counter that survives a ref
   await expect(page.getByRole('status', { name: 'Temporada' })).toHaveText('2');
   await expect(page.getByRole('status', { name: 'Episódio' })).toHaveText('3');
 });
+test('owner can cancel or confirm removing movies and shows from the shelf', async ({ page }) => {
+  await page.goto('/');
+  for (const kind of ['Filme', 'Série']) {
+    const title = `${kind} para remover`;
+    await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+    await page.getByRole('button', { name: kind, exact: true }).click();
+    await page.getByLabel('Título', { exact: true }).fill(title);
+    await page.getByRole('button', { name: 'Guardar na estante' }).click();
+    const detail = page.getByRole('dialog', { name: title, exact: true });
+    await expect(detail).toBeVisible();
+    const detailUrl = page.url();
+    await detail.getByRole('button', { name: 'Remover da estante' }).click();
+    const confirmation = page.getByRole('dialog', { name: 'Remover da estante?' });
+    await expect(confirmation).toContainText('notas e o progresso de todos');
+    await expect(confirmation.getByRole('button', { name: 'Cancelar' })).toBeFocused();
+    await confirmation.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(detail).toBeVisible();
+    await expect(page).toHaveURL(detailUrl);
+
+    await detail.getByRole('button', { name: 'Remover da estante' }).click();
+    const removed = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' &&
+        /\/api\/media\//.test(response.url()) &&
+        response.ok(),
+    );
+    await confirmation.getByRole('button', { name: 'Remover definitivamente' }).click();
+    await removed;
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/media=/);
+    await expect(page.getByRole('button', { name: `Abrir ${title}`, exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(
+      page.getByRole('tab', { name: kind === 'Filme' ? /Filmes/ : /Séries/ }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('button', { name: `Abrir ${title}`, exact: true })).toHaveCount(0);
+  }
+});
+
 test('season tracker marks episodes up to a point, advances, undoes, and tracks the group apart', async ({
   page,
 }) => {

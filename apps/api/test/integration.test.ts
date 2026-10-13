@@ -864,6 +864,92 @@ describe('private club on a real Worker + D1 runtime', () => {
     await request(`/club/lists/${title.listId}/items/${title.id}`, 'DELETE');
     expect(((await (await request(`/media/${title.id}`)).json()) as any).personal.rating).toBe(9);
   });
+  it('removes movies and shows with their ratings, list items, and import aliases', async () => {
+    for (const kind of ['movie', 'tv']) {
+      const title = await manual(kind);
+      const ana = await join(`Ana ${kind}`);
+      expect(
+        (
+          await request(
+            `/media/${title.id}/personal`,
+            'PUT',
+            {
+              status: 'watched',
+              rating: 9,
+              season: null,
+              episode: null,
+              revision: 0,
+            },
+            ana.cookie,
+          )
+        ).status,
+      ).toBe(200);
+      await db
+        .prepare(
+          'INSERT INTO import_aliases (club_id,source_key,variant_key,media_id) VALUES (?,?,?,?)',
+        )
+        .bind(
+          ((await (await request('/auth/session')).json()) as any).club.id,
+          kind,
+          'original',
+          title.id,
+        )
+        .run();
+
+      expect((await request(`/media/${title.id}`, 'DELETE', { revision: 0 })).status).toBe(200);
+      expect((await request(`/media/${title.id}`)).status).toBe(404);
+      for (const table of ['member_media', 'list_items', 'import_aliases']) {
+        expect(
+          await db
+            .prepare(`SELECT COUNT(*) count FROM ${table} WHERE media_id=?`)
+            .bind(title.id)
+            .first('count'),
+        ).toBe(0);
+      }
+    }
+    expect(await (await request('/media/counts')).json()).toEqual({ movie: 0, tv: 0 });
+  });
+  it('restricts title removal to the club owner and the active club', async () => {
+    const title = await manual();
+    const ana = await join('Ana');
+    const other = await createClub('Outro dono');
+    expect(
+      (await request(`/media/${title.id}`, 'DELETE', { revision: 0 }, ana.cookie)).status,
+    ).toBe(403);
+    expect(
+      (await request(`/media/${title.id}`, 'DELETE', { revision: 0 }, other.cookie)).status,
+    ).toBe(404);
+    expect((await request(`/media/${title.id}`, 'DELETE', { revision: 0 }, '')).status).toBe(401);
+    expect(
+      (
+        await request(
+          `/media/${title.id}`,
+          'DELETE',
+          { revision: 0 },
+          ownerCookie,
+          'https://other.example',
+        )
+      ).status,
+    ).toBe(403);
+    expect((await request(`/media/${title.id}`)).status).toBe(200);
+  });
+  it('requires a current revision before removing a title', async () => {
+    const title = await manual();
+    expect((await request(`/media/${title.id}`, 'DELETE', {})).status).toBe(400);
+    expect(
+      (
+        await request(`/media/${title.id}/group`, 'PUT', {
+          status: 'watched',
+          season: null,
+          episode: null,
+          revision: 0,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await request(`/media/${title.id}`, 'DELETE', { revision: 0 })).status).toBe(409);
+    expect((await request(`/media/${title.id}`)).status).toBe(200);
+    expect((await request(`/media/${title.id}`, 'DELETE', { revision: 1 })).status).toBe(200);
+  });
   it('imports screenshots idempotently and retains manual titles and order', async () => {
     expect(screenshotEntries).toHaveLength(40);
     for (let pass = 0; pass < 2; pass++)
