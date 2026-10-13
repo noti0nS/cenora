@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 async function createProfile(page: Page) {
   await page.goto('/');
@@ -170,6 +171,43 @@ for (const format of ['gif', 'avif', 'bmp', 'ico'] as const) {
       .toBe(format === 'gif' ? 1 : 2);
   });
 }
+
+test('uploads and previews images with the production content security policy', async ({
+  page,
+}) => {
+  const headers = await readFile('apps/web/public/_headers', 'utf8');
+  const policy = headers.match(/Content-Security-Policy: (.+)/)![1];
+  await page.route('**/*', async (route) => {
+    if (route.request().resourceType() !== 'document') return route.continue();
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      headers: { ...response.headers(), 'Content-Security-Policy': policy },
+    });
+  });
+  await createProfile(page);
+  await openProfile(page);
+  await page
+    .getByLabel('Escolha sua foto')
+    .setInputFiles({ name: 'foto.avif', mimeType: 'image/avif', buffer: avifFixture });
+  await expect(page.getByRole('button', { name: 'Salvar foto', exact: true })).toBeVisible();
+  await expect(page.locator('.avatar-preview img')).toHaveAttribute('src', /^blob:/);
+  await expect
+    .poll(() =>
+      page.locator('.avatar-preview img').evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBe(2);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/auth/profile/avatar') && response.request().method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Salvar foto', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(page.locator('.avatar-preview img')).toHaveAttribute(
+    'src',
+    /^\/api\/club\/members\//,
+  );
+});
 
 test('invalid and oversized uploads keep the current avatar unchanged', async ({ page }) => {
   await createProfile(page);
