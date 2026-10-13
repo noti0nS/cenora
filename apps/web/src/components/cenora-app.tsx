@@ -55,7 +55,6 @@ import { ImportDialog } from './import-dialog';
 import { Roleta } from './roleta';
 import { Avatar } from './avatar';
 import { ClubRankingDialog } from './club-ranking';
-import { RecommendationsDialog } from './recommendations';
 import { DiscoverySection } from './discovery-section';
 
 type Kind = ShelfKind;
@@ -164,7 +163,6 @@ function App() {
     [rankingOpen, setRankingOpen] = useState(false),
     [importing, setImporting] = useState(false),
     [spinning, setSpinning] = useState(false),
-    [recommending, setRecommending] = useState(false),
     [inviteOpen, setInviteOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const q = useDebounced(search);
@@ -484,23 +482,6 @@ function App() {
               )}
             </div>
             <div className="header-actions">
-              <button
-                className="club-chip"
-                aria-label={`Clubes e participantes. Clube atual: ${session.data?.club?.name ?? ''}`}
-                onClick={() => setClubsOpen(true)}
-              >
-                <Users size={15} />
-                <span>{session.data?.club?.name}</span>
-              </button>
-              <button
-                className="ranking-trigger"
-                aria-label="Ranking do clube"
-                title="Ranking do clube"
-                onClick={() => setRankingOpen(true)}
-              >
-                <Trophy size={18} />
-                <span>Conquistas</span>
-              </button>
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
                 <Plus size={18} />
                 <span>Adicionar</span>
@@ -544,10 +525,12 @@ function App() {
                   <Users size={16} />
                   Clubes e participantes
                 </MenuItem>
-                <MenuItem onSelect={() => setRankingOpen(true)}>
-                  <Trophy size={16} />
-                  Ranking do clube
-                </MenuItem>
+                {session.data?.club?.rankingEnabled && member.rankingEnabled !== false && (
+                  <MenuItem onSelect={() => setRankingOpen(true)}>
+                    <Trophy size={16} />
+                    Ranking do clube
+                  </MenuItem>
+                )}
                 {member.role === 'owner' && (
                   <MenuItem onSelect={() => setImporting(true)}>
                     <ArrowUpRight size={16} />
@@ -609,11 +592,11 @@ function App() {
               ))}
             </div>
             <div className="toolbar-end">
-              <div className="shelf-desktop-controls">
-                <button className="chip" onClick={() => setRecommending(true)}>
-                  <Sparkles size={14} />
-                  <span>O que assistir</span>
-                </button>
+              <div
+                className="shelf-desktop-controls"
+                role="group"
+                aria-label="Ferramentas da estante"
+              >
                 <button className="chip roleta-chip" onClick={() => setSpinning(true)}>
                   <Dices size={14} />
                   <span>Roleta</span>
@@ -653,9 +636,6 @@ function App() {
                   }
                 >
                   <div className="menu-caption">{mine ? 'Sua fila' : 'Estante do clube'}</div>
-                  <MenuItem onSelect={() => setRecommending(true)}>
-                    <Sparkles size={16} /> O que assistir
-                  </MenuItem>
                   <MenuItem onSelect={() => setSpinning(true)}>
                     <Dices size={16} /> Roleta
                   </MenuItem>
@@ -825,18 +805,6 @@ function App() {
             onPick={(id) => {
               setSpinning(false);
               navigate({ media: id });
-            }}
-          />
-          <RecommendationsDialog
-            key={`${member.id}:${kind}:${mine}`}
-            open={recommending}
-            onClose={() => setRecommending(false)}
-            kind={kind}
-            mine={mine}
-            memberId={member.id}
-            onPick={(id, selectedKind) => {
-              setRecommending(false);
-              navigate({ kind: selectedKind, media: id });
             }}
           />
           <AddMedia

@@ -56,6 +56,7 @@ export function ClubsDialog({
   const [bringCode, setBringCode] = useState('');
   const [passwordEdit, setPasswordEdit] = useState(false);
   const [passwordValue, setPasswordValue] = useState('');
+  const [pendingRanking, setPendingRanking] = useState<boolean | null>(null);
 
   const user = session?.user ?? null;
   const scoped = Boolean(session?.scoped);
@@ -265,7 +266,7 @@ export function ClubsDialog({
             <Avatar member={person} />
             <span className="roster-name">
               {person.name}
-              <MemberBadge badge={person.featuredBadge} />
+              {club?.rankingEnabled && <MemberBadge badge={person.featuredBadge} />}
               <small>
                 {person.id === member.id && 'Você'}
                 {person.id === member.id && (person.role === 'owner' || isOwner) && ' · '}
@@ -682,6 +683,43 @@ export function ClubsDialog({
                   )}
                   {tab === 'settings' && isOwner && (
                     <div className="stack">
+                      <div className="ranking-participation">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={pendingRanking ?? Boolean(club.rankingEnabled)}
+                            disabled={busy}
+                            onChange={(e) => {
+                              const enabled = e.target.checked;
+                              setPendingRanking(enabled);
+                              void run(async () => {
+                                try {
+                                  await api('/club/ranking', json('PATCH', { enabled }));
+                                  qc.setQueryData<SessionState>(['session'], (old) =>
+                                    old && old.club
+                                      ? { ...old, club: { ...old.club, rankingEnabled: enabled } }
+                                      : old,
+                                  );
+                                  refresh();
+                                  void qc.invalidateQueries({ queryKey: ['ranking'] });
+                                  toast.success(
+                                    enabled
+                                      ? 'Ranking e conquistas ativados neste clube.'
+                                      : 'Ranking e conquistas desativados neste clube.',
+                                  );
+                                } finally {
+                                  setPendingRanking(null);
+                                }
+                              });
+                            }}
+                          />{' '}
+                          Ativar ranking e conquistas neste clube
+                        </label>
+                        <small>
+                          Opcional. Todos do clube participam do placar, e quem preferir pode
+                          ocultar para si.
+                        </small>
+                      </div>
                       <button className="settings-action" disabled={busy} onClick={exportData}>
                         <Download size={16} />
                         Exportar uma cópia em JSON

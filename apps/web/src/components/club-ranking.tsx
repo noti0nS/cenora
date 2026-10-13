@@ -3,7 +3,13 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trophy, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { type ClubRanking, type Member, type RankingBadge, type ShelfKind } from '@cenora/shared';
+import {
+  type ClubRanking,
+  type Member,
+  type RankingBadge,
+  type SessionState,
+  type ShelfKind,
+} from '@cenora/shared';
 import { api, json, errorMessage } from '@/lib/api';
 import { Avatar } from './avatar';
 import { Button, Modal, Segmented } from './ui';
@@ -52,13 +58,23 @@ export function ClubRankingDialog({
     if (value.enabled !== undefined) setPendingParticipation(value.enabled);
     try {
       await api('/club/ranking/participation', json('PATCH', value));
-      await qc.invalidateQueries({ queryKey: ['ranking'] });
-      await qc.invalidateQueries({ queryKey: ['members'] });
+      if (value.enabled !== undefined) {
+        qc.setQueryData<SessionState>(['session'], (old) =>
+          old && old.member
+            ? { ...old, member: { ...old.member, rankingEnabled: value.enabled } }
+            : old,
+        );
+      }
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['ranking'] }),
+        qc.invalidateQueries({ queryKey: ['members'] }),
+        qc.invalidateQueries({ queryKey: ['session'] }),
+      ]);
       if (value.enabled !== undefined)
         toast.success(
           value.enabled
-            ? 'Você voltou ao ranking.'
-            : 'Você saiu do ranking. Seu progresso continua salvo.',
+            ? 'Ranking visível novamente para você.'
+            : 'Você ocultou o ranking para você. Você continua participando no clube.',
         );
     } catch (e) {
       toast.error(errorMessage(e));
@@ -117,7 +133,7 @@ export function ClubRankingDialog({
           <>
             {!data.participation.enabled && (
               <p className="ranking-notice">
-                Você está fora do placar. Seus títulos, notas e progresso não mudam.
+                Você ocultou o ranking para você. Você continua participando do placar do clube.
               </p>
             )}
             {!data.entries.some((entry) => entry.count > 0) && (
@@ -185,9 +201,11 @@ export function ClubRankingDialog({
                   disabled={busy}
                   onChange={(e) => void change({ enabled: e.target.checked })}
                 />{' '}
-                Participar do ranking deste clube
+                Mostrar ranking e conquistas para mim
               </label>
-              <small>Opcional. Sair do placar não apaga seu histórico.</small>
+              <small>
+                Desativar esconde o ranking para você, mas você continua participando no clube.
+              </small>
             </div>
           </>
         )

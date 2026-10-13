@@ -120,12 +120,14 @@ export interface Member {
   role: 'owner' | 'member';
   avatarUrl?: string | null;
   avatarRevision?: number;
+  rankingEnabled?: boolean;
   featuredBadge?: EarnedBadge | null;
   achievements?: EarnedBadge[];
 }
 export interface Club {
   id: string;
   name: string;
+  rankingEnabled?: boolean;
 }
 export interface ClubInvite {
   token: string;
@@ -250,9 +252,14 @@ export interface SessionState {
 export interface ImportEntry {
   title: string;
   originalTitle?: string;
+  year?: number | null;
   kind: 'movie' | 'tv';
   category: string;
   tmdbId?: number;
+  personalStatus?: PersonalStatus;
+  personalRating?: number | null;
+  personalSeason?: number | null;
+  personalEpisode?: number | null;
 }
 export const importSchema = z.object({
   entries: z
@@ -260,9 +267,14 @@ export const importSchema = z.object({
       z.object({
         title: z.string().trim().min(1).max(200),
         originalTitle: z.string().trim().min(1).max(200).optional(),
+        year: z.number().int().min(1888).max(2100).nullable().optional(),
         kind: z.enum(['movie', 'tv']),
         category: z.string().trim().min(1).max(60),
         tmdbId: z.number().int().positive().optional(),
+        personalStatus: z.enum(personalStatuses).optional(),
+        personalRating: z.number().min(0.5).max(10).multipleOf(0.5).nullable().optional(),
+        personalSeason: z.number().int().min(1).max(999).nullable().optional(),
+        personalEpisode: z.number().int().min(1).max(9999).nullable().optional(),
       }),
     )
     .min(1)

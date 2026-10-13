@@ -81,6 +81,13 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
       ).status(),
     ).toBe(200);
     await page.goto('/');
+    // Ranking starts opted-out at the club level; the owner enables it in Ajustes.
+    await page.getByRole('button', { name: 'Perfil de Marina' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Ranking do clube' })).toHaveCount(0);
+    await page.getByRole('menuitem', { name: 'Clubes e participantes' }).click();
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Ativar ranking e conquistas neste clube' }).check();
+    await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('button', { name: 'Abrir Uma boa sessão', exact: true }).click();
     const saved = page.waitForResponse(
       (r) => r.url().endsWith('/personal') && r.request().method() === 'PUT' && r.ok(),
@@ -89,7 +96,7 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await saved;
     await expect(page.getByText('Conquista desbloqueada!', { exact: true })).toBeVisible();
     await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
     const dialog = page.getByRole('dialog', { name: 'Ranking do clube' });
     await expect(dialog.locator('.ranking-row')).toHaveCount(2);
     await expect(dialog.getByLabel('1º lugar', { exact: true })).toHaveCount(2);
@@ -119,15 +126,29 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await dialog.getByRole('button', { name: 'Filmes', exact: true }).click();
     await dialog.getByRole('button', { name: 'Desde sempre', exact: true }).click();
     await expect(dialog.locator('.ranking-mine')).toContainText('5 filmes');
-    await dialog.getByRole('checkbox', { name: 'Participar do ranking deste clube' }).uncheck();
-    await expect(dialog.locator('.ranking-row')).toHaveCount(1);
-    await expect(dialog.locator('.ranking-mine')).toHaveCount(0);
-    await page.reload();
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await dialog.getByRole('checkbox', { name: 'Mostrar ranking e conquistas para mim' }).uncheck();
+    // Both members remain on the leaderboard even when Marina hides the UI for herself.
+    await expect(dialog.locator('.ranking-row')).toHaveCount(2);
     await expect(
-      dialog.getByRole('checkbox', { name: 'Participar do ranking deste clube' }),
-    ).not.toBeChecked();
-    await dialog.getByRole('checkbox', { name: 'Participar do ranking deste clube' }).check();
+      dialog.getByText(
+        'Você ocultou o ranking para você. Você continua participando do placar do clube.',
+      ),
+    ).toBeVisible();
+    await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await page.reload();
+    await page.getByRole('button', { name: 'Perfil de Marina' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Ranking do clube' })).toHaveCount(0);
+    await page.getByRole('menuitem', { name: 'Meu perfil' }).click();
+    const profileToRestore = page.getByRole('dialog', { name: 'Seu pequeno espaço' });
+    await profileToRestore.getByText('Conquistas neste clube', { exact: true }).click();
+    await profileToRestore
+      .getByRole('checkbox', { name: 'Mostrar ranking e conquistas para mim' })
+      .check();
+    await profileToRestore.getByRole('button', { name: 'Fechar', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Mostrar ranking e conquistas para mim' }),
+    ).toBeChecked();
     await expect(dialog.locator('.ranking-row')).toHaveCount(2);
     await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('tab', { name: /Séries/ }).click();
@@ -138,7 +159,7 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await page.getByRole('button', { name: 'Vi mais um episódio', exact: true }).click();
     await episodeSaved;
     await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click();
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
     await expect(dialog.getByRole('button', { name: 'Séries', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -158,7 +179,7 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await profile.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('button', { name: 'Perfil de Marina' }).click();
     await page.getByRole('menuitem', { name: 'Usar tema claro' }).click();
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
     await page.screenshot({ path: 'artifacts/ranking-desktop-light.png', animations: 'disabled' });
     await page.setViewportSize({ width: 360, height: 800 });
     await expect(dialog).toBeVisible();
@@ -186,6 +207,9 @@ test('ranking has a recoverable loading and error state', async ({ page }) => {
   expect(
     (await page.request.post('/api/auth/create', { headers, data: { name: 'Bia' } })).status(),
   ).toBe(201);
+  expect(
+    (await page.request.patch('/api/club/ranking', { headers, data: { enabled: true } })).status(),
+  ).toBe(200);
   await page.goto('/');
   let release: (() => void) | undefined;
   const blocked = new Promise<void>((resolve) => {
@@ -201,7 +225,7 @@ test('ranking has a recoverable loading and error state', async ({ page }) => {
       }),
     });
   });
-  await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+  await openClubAction(page, 'Ranking do clube');
   const dialog = page.getByRole('dialog', { name: 'Ranking do clube' });
   await expect(dialog.getByRole('status')).toHaveText('Preparando o placar…');
   release!();

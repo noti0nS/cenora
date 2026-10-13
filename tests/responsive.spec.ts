@@ -68,6 +68,11 @@ test.beforeAll(async ({ browser }) => {
     data: { name: memberName },
   });
   expect(created.ok()).toBe(true);
+  const rankingEnabled = await context.request.patch(`${origin}/api/club/ranking`, {
+    headers: { Origin: origin },
+    data: { enabled: true },
+  });
+  expect(rankingEnabled.ok()).toBe(true);
   const lists = await (await context.request.get(`${origin}/api/club/lists`)).json();
   for (const kind of ['movie', 'tv']) {
     const response = await context.request.post(`${origin}/api/media/manual`, {

@@ -262,10 +262,28 @@ h3,
   flex-wrap: wrap;
 }
 .shelf-desktop-controls {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.shelf-desktop-controls .chip {
+  border-color: transparent;
+  padding: 6px 13px;
+}
+.shelf-desktop-controls .chip.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+.shelf-desktop-controls .sort {
+  border-color: transparent;
+  background: transparent;
+  padding: 6px 24px 6px 12px;
 }
 .shelf-mobile-controls {
   display: none;

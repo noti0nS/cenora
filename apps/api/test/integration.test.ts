@@ -361,9 +361,13 @@ describe('private club ranking', () => {
     expect(imported.status).toBe(200);
     expect((await ranking()).entries[0].count).toBe(0);
   });
-  it('keeps preferences and badges scoped to the current profile, and excludes opted-out and removed members', async () => {
+  it('keeps preferences and badges scoped to the current profile, includes all active members when hidden, and excludes removed members', async () => {
     const a = await join('Amiga');
     const b = await join('Outra amiga');
+    expect((await ranking()).clubEnabled).toBe(false);
+    expect((await request('/club/ranking', 'PATCH', { enabled: true }, a.cookie)).status).toBe(403);
+    expect((await request('/club/ranking', 'PATCH', { enabled: true })).status).toBe(200);
+    expect((await ranking()).clubEnabled).toBe(true);
     const movie = await manual();
     await personal(movie.id, 0);
     await personal(movie.id, 0, {}, a.cookie);
@@ -388,7 +392,7 @@ describe('private club ranking', () => {
     expect((await request('/club/ranking/participation', 'PATCH', { enabled: false })).status).toBe(
       200,
     );
-    expect((await ranking()).entries).toHaveLength(2);
+    expect((await ranking()).entries).toHaveLength(3);
     expect((await ranking()).participation.enabled).toBe(false);
     expect((await ranking()).participation.badges).toContain('company');
     expect((await request(`/media/${movie.id}`)).status).toBe(200);

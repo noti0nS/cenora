@@ -7,6 +7,7 @@ import {
   type GroupStatus,
   type MediaDetails,
   type PersonalStatus,
+  type SessionState,
 } from '@cenora/shared';
 import { toast } from 'sonner';
 import { api, json } from '@/lib/api';
@@ -54,14 +55,20 @@ export function useTitleTracking(data: MediaDetails) {
           keepalive: true,
         }),
         earned = result.newAchievements ?? [];
-      const seen = new Set<string>();
-      for (const award of earned) {
-        if (seen.has(award.badge)) continue;
-        seen.add(award.badge);
-        toast.success('Conquista desbloqueada!', {
-          description: `${rankingBadges[award.badge].name} · ${achievementLevels[award.tier - 1]}`,
-          duration: 5500,
-        });
+      const currentSession = qc.getQueryData<SessionState>(['session']);
+      const showRanking =
+        Boolean(currentSession?.club?.rankingEnabled) &&
+        currentSession?.member?.rankingEnabled !== false;
+      if (showRanking) {
+        const seen = new Set<string>();
+        for (const award of earned) {
+          if (seen.has(award.badge)) continue;
+          seen.add(award.badge);
+          toast.success('Conquista desbloqueada!', {
+            description: `${rankingBadges[award.badge].name} · ${achievementLevels[award.tier - 1]}`,
+            duration: 5500,
+          });
+        }
       }
       return result;
     },

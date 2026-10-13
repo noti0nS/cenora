@@ -54,6 +54,7 @@ export interface ClubRanking {
   kind: ShelfKind;
   period: 'month' | 'all';
   month: string;
+  clubEnabled: boolean;
   entries: RankingEntry[];
   clubTitles: number;
   participation: {

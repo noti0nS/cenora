@@ -13,12 +13,12 @@ export function awardAchievements(db: D1Database, clubId: string, memberId: stri
     db
       .prepare(
         `WITH viewed AS (
-      SELECT DISTINCT u.member_id,u.media_id,u.unit,p.half_points,member.ranking_enabled
+      SELECT DISTINCT u.member_id,u.media_id,u.unit,p.half_points
       FROM ranking_units u JOIN member_media p USING(member_id,media_id)
       JOIN media m ON m.id=u.media_id JOIN members member ON member.id=u.member_id AND member.club_id=m.club_id
       WHERE member.club_id=? AND member.active=1 AND u.current_count>0 AND u.unit<>'season'
     ), company AS (
-      SELECT media_id FROM viewed WHERE ranking_enabled=1 GROUP BY media_id HAVING COUNT(DISTINCT member_id)>=3
+      SELECT media_id FROM viewed GROUP BY media_id HAVING COUNT(DISTINCT member_id)>=3
     ), metrics AS (
       SELECT member_id,'debut' badge,COUNT(DISTINCT media_id) amount FROM viewed WHERE unit='movie' GROUP BY member_id
       UNION ALL
@@ -29,7 +29,7 @@ export function awardAchievements(db: D1Database, clubId: string, memberId: stri
       SELECT member_id,'critic',COUNT(DISTINCT media_id) FROM viewed WHERE half_points IS NOT NULL GROUP BY member_id
       UNION ALL
       SELECT v.member_id,'company',COUNT(DISTINCT v.media_id) FROM viewed v JOIN company c ON c.media_id=v.media_id
-        WHERE v.ranking_enabled=1 GROUP BY v.member_id
+        GROUP BY v.member_id
     ), levels(badge,tier,target) AS (VALUES ${levels})
     INSERT OR IGNORE INTO ranking_achievements(member_id,badge,tier,earned_at)
     SELECT m.member_id,m.badge,l.tier,? FROM metrics m JOIN levels l ON l.badge=m.badge

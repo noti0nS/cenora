@@ -330,9 +330,21 @@ clubRoutes.post('/import', async (c) => {
     )
       .bind(clubId, sourceKey, variant, original === variant ? 1 : 0)
       .all<{ media_id: string }>();
+    const savePersonal = async (targetMediaId: string) => {
+      if (!entry.personalStatus) return;
+      const halfPoints = entry.personalRating ? Math.round(entry.personalRating * 2) : null;
+      const season = entry.kind === 'tv' ? (entry.personalSeason ?? null) : null;
+      const episode = entry.kind === 'tv' ? (entry.personalEpisode ?? null) : null;
+      await c.env.DB.prepare(
+        'INSERT INTO member_media (member_id,media_id,status,half_points,season,episode,revision) VALUES (?,?,?,?,?,?,1) ON CONFLICT(member_id,media_id) DO UPDATE SET status=excluded.status,half_points=COALESCE(excluded.half_points,member_media.half_points),season=COALESCE(excluded.season,member_media.season),episode=COALESCE(excluded.episode,member_media.episode),revision=member_media.revision+1',
+      )
+        .bind(c.get('member').id, targetMediaId, entry.personalStatus, halfPoints, season, episode)
+        .run();
+    };
     if (aliases.results.length) {
       for (const alias of aliases.results) {
         await attach(c, list.id, alias.media_id);
+        await savePersonal(alias.media_id);
         ids.push(alias.media_id);
       }
       continue;
@@ -353,14 +365,22 @@ clubRoutes.post('/import', async (c) => {
         .first<{ id: string }>();
       if (!media) {
         await c.env.DB.prepare(
-          'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,created_by) VALUES (?,?,?,?,?,?)',
+          'INSERT OR IGNORE INTO media (id,club_id,title,normalized_title,kind,year,created_by) VALUES (?,?,?,?,?,?,?)',
         )
-          .bind(id(), clubId, entry.title, variant, entry.kind, c.get('member').id)
+          .bind(
+            id(),
+            clubId,
+            entry.title,
+            variant,
+            entry.kind,
+            entry.year ?? null,
+            c.get('member').id,
+          )
           .run();
         media = await c.env.DB.prepare(
-          'SELECT id FROM media WHERE club_id=? AND normalized_title=? AND kind=? AND year IS NULL AND tmdb_id IS NULL',
+          'SELECT id FROM media WHERE club_id=? AND normalized_title=? AND kind=? AND COALESCE(year,0)=? AND tmdb_id IS NULL',
         )
-          .bind(clubId, variant, entry.kind)
+          .bind(clubId, variant, entry.kind, entry.year ?? 0)
           .first<{ id: string }>();
       }
       if (!media)
@@ -372,6 +392,7 @@ clubRoutes.post('/import', async (c) => {
       await c.env.DB.prepare("UPDATE media SET is_anime=1 WHERE id=? AND club_id=? AND kind='tv'")
         .bind(mediaId, clubId)
         .run();
+    await savePersonal(mediaId);
     await c.env.DB.prepare(
       'INSERT OR IGNORE INTO import_aliases (club_id,source_key,variant_key,media_id) VALUES (?,?,?,?)',
     )

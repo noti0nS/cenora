@@ -34,15 +34,17 @@ import {
 } from './lib';
 import { mailerFor, accessCodeMail } from './mailer';
 
-type ClubRow = Club & { owner_id: string; token_version: number };
+type ClubRow = Club & { owner_id: string; token_version: number; ranking_enabled?: number };
 type MembershipRow = {
   member_id: string;
   member_name: string;
   avatar: string | null;
   avatar_revision: number;
+  ranking_enabled?: number;
   role: 'owner' | 'member';
   club_id: string;
   club_name: string;
+  club_ranking_enabled?: number;
   token_version: number;
   member_count?: number;
 };
@@ -57,12 +59,14 @@ type SessionRow = {
   member_name: string | null;
   avatar: string | null;
   avatar_revision: number;
+  ranking_enabled: number | null;
   role: 'owner' | 'member' | null;
   active: number | null;
   member_user_id: string | null;
   member_user_email: string | null;
   club_id: string | null;
   club_name: string | null;
+  club_ranking_enabled: number | null;
   owner_id: string | null;
   token_version: number | null;
 };
@@ -91,7 +95,7 @@ function sessionCookie(c: Context<AppEnv>, maxAge: number) {
 
 async function memberships(c: Context<AppEnv>, userId: string) {
   const rows = await c.env.DB.prepare(
-    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,c.id club_id,c.name club_name,c.token_version,(SELECT COUNT(*) FROM members x WHERE x.club_id=c.id AND x.active=1) member_count FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.user_id=? AND m.active=1 ORDER BY m.created_at,m.name',
+    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version,(SELECT COUNT(*) FROM members x WHERE x.club_id=c.id AND x.active=1) member_count FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.user_id=? AND m.active=1 ORDER BY m.created_at,m.name',
   )
     .bind(userId)
     .all<MembershipRow>();
@@ -108,9 +112,14 @@ const toMember = (row: MembershipRow): Member => ({
   id: row.member_id,
   name: row.member_name,
   role: row.role,
+  rankingEnabled: row.ranking_enabled !== 0,
   ...avatarFields(row.member_id, row.avatar, row.avatar_revision),
 });
-const toClub = (row: MembershipRow): Club => ({ id: row.club_id, name: row.club_name });
+const toClub = (row: MembershipRow): Club => ({
+  id: row.club_id,
+  name: row.club_name,
+  rankingEnabled: Boolean(row.club_ranking_enabled),
+});
 
 async function activate(
   c: Context<AppEnv>,
@@ -170,7 +179,7 @@ export async function resolveSession(
   const digest = await hash(raw);
   const now = Math.floor(Date.now() / 1000);
   const row = await c.env.DB.prepare(
-    'SELECT s.user_id,s.member_id,s.club_version,s.scope_member_id,s.created_at,s.expires_at,u.email,m.name member_name,m.avatar,m.avatar_revision,m.role,m.active,m.user_id member_user_id,mu.email member_user_email,c2.id club_id,c2.name club_name,c2.owner_id,c2.token_version FROM sessions s LEFT JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.id=s.member_id LEFT JOIN users mu ON mu.id=m.user_id LEFT JOIN clubs c2 ON c2.id=m.club_id WHERE s.token_hash=? AND s.expires_at>?',
+    'SELECT s.user_id,s.member_id,s.club_version,s.scope_member_id,s.created_at,s.expires_at,u.email,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,m.active,m.user_id member_user_id,mu.email member_user_email,c2.id club_id,c2.name club_name,c2.ranking_enabled club_ranking_enabled,c2.owner_id,c2.token_version FROM sessions s LEFT JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.id=s.member_id LEFT JOIN users mu ON mu.id=m.user_id LEFT JOIN clubs c2 ON c2.id=m.club_id WHERE s.token_hash=? AND s.expires_at>?',
   )
     .bind(digest, now)
     .first<SessionRow>();
@@ -198,9 +207,14 @@ export async function resolveSession(
         id: row.member_id,
         name: row.member_name!,
         role: row.role!,
+        rankingEnabled: row.ranking_enabled !== 0,
         ...avatarFields(row.member_id, row.avatar, row.avatar_revision),
       };
-      club = { id: row.club_id!, name: row.club_name! };
+      club = {
+        id: row.club_id!,
+        name: row.club_name!,
+        rankingEnabled: Boolean(row.club_ranking_enabled),
+      };
     } else if (!user) {
       return null;
     } else {
@@ -279,7 +293,7 @@ export async function issueSession(
 
 async function findClub(c: Context<AppEnv>, raw: string): Promise<ClubRow> {
   const club = await c.env.DB.prepare(
-    'SELECT id,name,owner_id,token_version FROM clubs WHERE token_hash=?',
+    'SELECT id,name,owner_id,token_version,ranking_enabled FROM clubs WHERE token_hash=?',
   )
     .bind(await hash(raw))
     .first<ClubRow>();
@@ -511,7 +525,7 @@ auth.post('/club', async (c) => {
   if (!session?.user) throw new ApiError(401, 'UNAUTHORIZED', 'Entre no clube para continuar.');
   const input = await body(c, z.object({ memberId: z.string().min(1).max(100) }));
   const membership = await c.env.DB.prepare(
-    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=? AND m.user_id=? AND m.active=1',
+    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=? AND m.user_id=? AND m.active=1',
   )
     .bind(input.memberId, session.user.id)
     .first<MembershipRow>();
@@ -528,8 +542,8 @@ auth.post('/create', async (c) => {
   const session = await resolveSession(c);
   requireUnscoped(session);
   const userId = session?.user?.id ?? id();
-  const club: Club = { id: id(), name: 'Clube de ' + input.name };
-  const member: Member = { id: id(), name: input.name, role: 'owner' };
+  const club: Club = { id: id(), name: 'Clube de ' + input.name, rankingEnabled: false };
+  const member: Member = { id: id(), name: input.name, role: 'owner', rankingEnabled: true };
   const recoveryCode = token();
   const clubCode = token();
   const now = Math.floor(Date.now() / 1000);
@@ -589,7 +603,7 @@ auth.post('/create', async (c) => {
 // código do clube quanto ao link de convite.
 async function joinClub(
   c: Context<AppEnv>,
-  club: { id: string; name: string; token_version: number },
+  club: { id: string; name: string; token_version: number; ranking_enabled?: number },
   name: string,
 ) {
   const session = await resolveSession(c);
@@ -602,7 +616,7 @@ async function joinClub(
     );
   if (session?.user) {
     const existing = await c.env.DB.prepare(
-      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
+      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
     )
       .bind(club.id, session.user.id)
       .first<MembershipRow>();
@@ -616,7 +630,7 @@ async function joinClub(
         'NAME_EXISTS',
         'Este nome já tem um perfil neste clube. Escolha outro nome.',
       );
-    const member: Member = { id: id(), name, role: 'member' };
+    const member: Member = { id: id(), name, role: 'member', rankingEnabled: true };
     try {
       await c.env.DB.prepare(
         "INSERT INTO members (id,club_id,name,normalized_name,recovery_hash,role,user_id) VALUES (?,?,?,?,?,'member',?)",
@@ -640,12 +654,20 @@ async function joinClub(
       member_name: member.name,
       avatar: null,
       avatar_revision: 0,
+      ranking_enabled: 1,
       role: 'member',
       club_id: club.id,
       club_name: club.name,
+      club_ranking_enabled: club.ranking_enabled ?? 0,
       token_version: club.token_version,
     });
-    return c.json({ member, club: { id: club.id, name: club.name } }, 201);
+    return c.json(
+      {
+        member,
+        club: { id: club.id, name: club.name, rankingEnabled: Boolean(club.ranking_enabled) },
+      },
+      201,
+    );
   }
   if (await nameTaken()) {
     throw new ApiError(
@@ -656,7 +678,7 @@ async function joinClub(
   }
   const userId = id();
   const recoveryCode = token();
-  const member: Member = { id: id(), name, role: 'member' };
+  const member: Member = { id: id(), name, role: 'member', rankingEnabled: true };
   const now = Math.floor(Date.now() / 1000);
   try {
     await c.env.DB.batch([
@@ -680,7 +702,14 @@ async function joinClub(
     throw error;
   }
   await issueSession(c, member.id, userId);
-  return c.json({ member, club: { id: club.id, name: club.name }, recoveryCode }, 201);
+  return c.json(
+    {
+      member,
+      club: { id: club.id, name: club.name, rankingEnabled: Boolean(club.ranking_enabled) },
+      recoveryCode,
+    },
+    201,
+  );
 }
 
 auth.post('/join', async (c) => {
@@ -696,11 +725,12 @@ type InviteRow = {
   password_hash: string | null;
   name: string;
   token_version: number;
+  ranking_enabled: number;
 };
 
 async function findInvite(c: Context<AppEnv>, value: string) {
   return c.env.DB.prepare(
-    'SELECT i.club_id,i.token,i.password_hash,c.name,c.token_version FROM club_invites i JOIN clubs c ON c.id=i.club_id WHERE i.token=?',
+    'SELECT i.club_id,i.token,i.password_hash,c.name,c.token_version,c.ranking_enabled FROM club_invites i JOIN clubs c ON c.id=i.club_id WHERE i.token=?',
   )
     .bind(value)
     .first<InviteRow>();
@@ -730,7 +760,12 @@ auth.post('/invite', async (c) => {
   }
   return joinClub(
     c,
-    { id: row.club_id, name: row.name, token_version: row.token_version },
+    {
+      id: row.club_id,
+      name: row.name,
+      token_version: row.token_version,
+      ranking_enabled: row.ranking_enabled,
+    },
     input.name,
   );
 });
@@ -745,7 +780,7 @@ auth.post('/recover', async (c) => {
     .first<{ id: string; email: string | null }>();
   if (identity) {
     const membership = await c.env.DB.prepare(
-      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
+      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.club_id=? AND m.user_id=? AND m.active=1',
     )
       .bind(club.id, identity.id)
       .first<MembershipRow>();
@@ -760,16 +795,24 @@ auth.post('/recover', async (c) => {
   if (!input.name)
     throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código pessoal deste clube.');
   const member = await c.env.DB.prepare(
-    'SELECT id,name,role,user_id,avatar,avatar_revision FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
+    'SELECT id,name,role,user_id,avatar,avatar_revision,ranking_enabled FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
   )
     .bind(club.id, normalizeName(input.name), digest)
-    .first<Member & { user_id: string | null; avatar: string | null; avatar_revision: number }>();
+    .first<
+      Member & {
+        user_id: string | null;
+        avatar: string | null;
+        avatar_revision: number;
+        ranking_enabled: number;
+      }
+    >();
   if (!member)
     throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código pessoal deste clube.');
   const profile: Member = {
     id: member.id,
     name: member.name,
     role: member.role,
+    rankingEnabled: member.ranking_enabled !== 0,
     ...avatarFields(member.id, member.avatar, member.avatar_revision),
   };
   const user = member.user_id
@@ -779,10 +822,19 @@ auth.post('/recover', async (c) => {
     : null;
   if (user) {
     await issueSession(c, member.id, user.id, member.id);
-    return c.json({ user, member: profile, club: { id: club.id, name: club.name }, scoped: true });
+    return c.json({
+      user,
+      member: profile,
+      club: { id: club.id, name: club.name, rankingEnabled: Boolean(club.ranking_enabled) },
+      scoped: true,
+    });
   }
   await issueSession(c, member.id, null);
-  return c.json({ user: null, member: profile, club: { id: club.id, name: club.name } });
+  return c.json({
+    user: null,
+    member: profile,
+    club: { id: club.id, name: club.name, rankingEnabled: Boolean(club.ranking_enabled) },
+  });
 });
 
 auth.post('/claim', async (c) => {
@@ -797,7 +849,7 @@ auth.post('/claim', async (c) => {
   if (!claim)
     throw new ApiError(401, 'INVALID_CLAIM', 'Este código de reacesso não é válido ou expirou.');
   const member = await c.env.DB.prepare(
-    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,m.active,m.user_id,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=?',
+    'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,m.active,m.user_id,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.id=?',
   )
     .bind(claim.member_id)
     .first<MembershipRow & { active: number; user_id: string | null }>();
@@ -879,7 +931,7 @@ auth.post('/link', async (c) => {
     if (!input.name) throw new ApiError(400, 'VALIDATION', 'Informe o nome do perfil antigo.');
     const club = await findClub(c, input.token);
     const member = await c.env.DB.prepare(
-      'SELECT id,name,role,user_id,avatar,avatar_revision FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
+      'SELECT id,name,role,user_id,avatar,avatar_revision,ranking_enabled FROM members WHERE club_id=? AND normalized_name=? AND recovery_hash=? AND active=1',
     )
       .bind(club.id, normalizeName(input.name), digest)
       .first<{
@@ -889,6 +941,7 @@ auth.post('/link', async (c) => {
         user_id: string | null;
         avatar: string | null;
         avatar_revision: number;
+        ranking_enabled: number;
       }>();
     if (!member)
       throw new ApiError(401, 'INVALID_RECOVERY', 'Confira o nome e o código deste perfil.');
@@ -900,9 +953,11 @@ auth.post('/link', async (c) => {
         member_name: member.name,
         avatar: member.avatar,
         avatar_revision: member.avatar_revision,
+        ranking_enabled: member.ranking_enabled,
         role: member.role,
         club_id: club.id,
         club_name: club.name,
+        club_ranking_enabled: club.ranking_enabled,
         token_version: club.token_version,
       },
       member.user_id,
@@ -914,7 +969,7 @@ auth.post('/link', async (c) => {
   if (!source) {
     // Só o código basta: ele é longo e aleatório, então identifica o perfil antigo sozinho.
     const legacy = await c.env.DB.prepare(
-      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.role,m.user_id,c.id club_id,c.name club_name,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.recovery_hash=? AND m.active=1',
+      'SELECT m.id member_id,m.name member_name,m.avatar,m.avatar_revision,m.ranking_enabled,m.role,m.user_id,c.id club_id,c.name club_name,c.ranking_enabled club_ranking_enabled,c.token_version FROM members m JOIN clubs c ON c.id=m.club_id WHERE m.recovery_hash=? AND m.active=1',
     )
       .bind(digest)
       .first<MembershipRow & { user_id: string | null }>();

@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import { openShelfAction } from './helpers/shelf';
+import { openShelfAction, openClubAction } from './helpers/shelf';
 
 const sampleShelfImport = [
   ...[
@@ -124,35 +124,22 @@ const savedAs = (page: Page, fragment: string) =>
       (r.request().postData() || '').includes(fragment) &&
       r.ok(),
   );
-test('shelf picks stay separate from opt-in discovery without a configured catalog', async ({
+test('opt-in discovery stays collapsed by default without a configured catalog', async ({
   page,
 }) => {
   await page.goto('/');
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    'href',
+    '/manifest.webmanifest',
+  );
   let discoveryRequests = 0;
   page.on('request', (request) => {
     if (request.url().includes('discover=true')) discoveryRequests++;
   });
-  await page.getByRole('button', { name: 'O que assistir', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'O que assistir' });
-  await expect(
-    dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
-  ).toHaveCount(12);
-  await expect(
-    dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }),
-  ).toHaveCount(0);
-  expect(discoveryRequests).toBe(0);
-  const title = await dialog.locator('.recommendation-results strong').first().textContent();
-  await dialog.locator('.catalog-result').first().click();
-  await expect(page.getByRole('dialog', { name: title!, exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Fechar', exact: true }).click();
-  await page.getByRole('tab', { name: /Animes/ }).click();
-  await page.getByRole('button', { name: 'O que assistir', exact: true }).click();
-  await expect(
-    dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
-  ).toHaveCount(3);
-  await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'O que assistir', exact: true })).toHaveCount(0);
   const discovery = page.getByRole('region', { name: 'Novidades para você' });
   await expect(discovery.locator('.discovery-content')).toHaveCount(0);
+  expect(discoveryRequests).toBe(0);
   await discovery.getByRole('button', { name: 'Ver sugestões de novos títulos' }).click();
   await expect(
     discovery.getByText('As sugestões ficam disponíveis', { exact: false }),
@@ -295,8 +282,8 @@ test('mobile groups secondary controls into one shelf menu without changing desk
     await expect(page.getByRole('menuitemradio', { name: 'A–Z', exact: true })).toBeChecked();
     await page.keyboard.press('Escape');
     await expect(options).toBeFocused();
-    await openShelfAction(page, 'O que assistir');
-    await expect(page.getByRole('dialog', { name: 'O que assistir' })).toBeVisible();
+    await openShelfAction(page, 'Roleta');
+    await expect(page.getByRole('dialog', { name: 'Roleta' })).toBeVisible();
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -305,8 +292,7 @@ test('mobile groups secondary controls into one shelf menu without changing desk
       await page.screenshot({ path: 'artifacts/shelf-mobile-clean.png', animations: 'disabled' });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await expect(page.locator('.header-actions button:visible')).toHaveCount(4);
-  await expect(page.getByRole('button', { name: 'O que assistir', exact: true })).toBeVisible();
+  await expect(page.locator('.header-actions button:visible')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Roleta', exact: true })).toBeVisible();
   await expect(page.getByLabel('Ordenar títulos')).toBeVisible();
 });
@@ -849,7 +835,7 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await page.getByRole('button', { name: 'Guardar na estante' }).click();
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
     await expect(page.locator('.shelf-intro')).toContainText('1 filme na estante');
-    await page.getByRole('button', { name: /^Clubes e participantes/ }).click();
+    await openClubAction(page, 'Clubes e participantes');
     await expect(page.getByRole('navigation', { name: 'Seus clubes' })).toBeVisible();
     await page.getByRole('button', { name: /Criar, entrar ou trazer/ }).click();
     await page.getByRole('button', { name: 'Criar clube', pressed: false }).click();
@@ -907,7 +893,7 @@ test('an owner shares a revocable invite link and a friend joins by opening it',
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /^Clubes e participantes/ }).click();
+  await openClubAction(page, 'Clubes e participantes');
   await page.getByRole('button', { name: 'Convite', exact: true }).click();
   const create = page.getByRole('button', { name: 'Criar link de convite' });
   if (await create.isVisible()) await create.click();
@@ -1078,6 +1064,69 @@ test('landing previews the shelf and opens the existing access flows on mobile',
   } finally {
     await context.close();
   }
+});
+
+test('imports Letterboxd CSV and MyAnimeList XML files and auto-matches with the TMDB catalog', async ({
+  page,
+}) => {
+  await page.route('**/api/auth/session', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), catalogAvailable: true } });
+  });
+  await page.route('**/api/media/search?*', async (route) => {
+    const url = new URL(route.request().url());
+    const q = url.searchParams.get('q') || '';
+    await route.fulfill({
+      json: {
+        results: q.toLowerCase().includes('bacurau')
+          ? [
+              {
+                tmdbId: 446159,
+                title: 'Bacurau',
+                kind: 'movie',
+                isAnime: false,
+                year: 2019,
+                posterUrl: null,
+                synopsis: '',
+                existingId: null,
+              },
+            ]
+          : [],
+        page: 1,
+        totalPages: 1,
+        available: true,
+      },
+    });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Perfil de Ana' }).click();
+  await page.getByRole('menuitem', { name: 'Importar títulos' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Importar títulos' });
+  await dialog.getByRole('button', { name: 'Importar arquivo', exact: true }).click();
+  await dialog.getByLabel('Escolha sua lista').setInputFiles({
+    name: 'ratings.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(
+      'Date,Name,Year,Letterboxd URI,Rating\n2026-01-10,Bacurau,2019,https://boxd.it/abc,4.5\n',
+    ),
+  });
+  await expect(dialog.getByLabel('Título 1')).toHaveValue('Bacurau');
+  await expect(dialog.getByText(/Nota 9/)).toBeVisible();
+  await expect(dialog.getByText(/Título manual/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Vincular automaticamente ao catálogo' }).click();
+  await expect(dialog.getByText(/Conectado ao catálogo/)).toBeVisible();
+
+  await dialog.getByLabel('Escolha sua lista').setInputFiles({
+    name: 'animelist.xml',
+    mimeType: 'text/xml',
+    buffer: Buffer.from(
+      '<myanimelist><anime><series_title>Cowboy Bebop</series_title><series_type>TV</series_type><my_status>Completed</my_status><my_score>10</my_score><my_watched_episodes>26</my_watched_episodes></anime></myanimelist>',
+    ),
+  });
+  await expect(dialog.getByLabel('Título 1')).toHaveValue('Cowboy Bebop');
+  await expect(dialog.getByText(/Animes/)).toBeVisible();
+  await expect(dialog.getByText(/Nota 10/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
 });
 
 test('landing uses Atropos and matches the access theme in both modes', async ({ browser }) => {

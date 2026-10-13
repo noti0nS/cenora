@@ -1,0 +1,25 @@
+{
+  "name": "Cenora · filmes e séries em boa companhia",
+  "short_name": "Cenora",
+  "description": "A estante de filmes, séries e animes da sua turma: assista, acompanhe e dê nota.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0d",
+  "theme_color": "#0a0a0d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/cenora-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

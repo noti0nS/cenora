@@ -161,16 +161,18 @@ export function SettingsDialog({
   session: SessionState | null;
 }) {
   const qc = useQueryClient();
+  const clubRankingOn = Boolean(session?.club?.rankingEnabled);
   const achievements = useQuery({
     queryKey: ['ranking', session?.club?.id, member.id, 'movie', 'all'],
     queryFn: () => api<ClubRanking>('/club/ranking?kind=movie&period=all'),
-    enabled: open && Boolean(session?.club),
+    enabled: open && clubRankingOn,
   });
   const featured = achievements.data?.participation.achievements.find(
     (award) => award.badge === achievements.data?.participation.badge && award.tier > 0,
   );
   const [name, setName] = useState(member.name),
     [busy, setBusy] = useState(false),
+    [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null),
     [confirm, setConfirm] = useState<{ label: string; run: () => Promise<void> } | null>(null),
     [code, setCode] = useState<{ label: string; value: string } | null>(null),
     [attaching, setAttaching] = useState(false);
@@ -266,39 +268,79 @@ export function SettingsDialog({
               Salvar nome
             </Button>
           </form>
-          <details className="disclosure profile-achievements">
-            <summary>Conquistas neste clube</summary>
-            {achievements.isPending ? (
-              <p className="muted-note">Carregando suas conquistas…</p>
-            ) : achievements.error ? (
-              <p className="error-note">{errorMessage(achievements.error)}</p>
-            ) : (
-              achievements.data && (
-                <AchievementCollection
-                  headingId="profile-achievements-title"
-                  achievements={achievements.data.participation.achievements}
-                  selected={achievements.data.participation.badge}
-                  busy={busy}
-                  onChoose={(badge: RankingBadge | null) =>
-                    void run(async () => {
-                      await api('/club/ranking/participation', json('PATCH', { badge }));
-                      await Promise.all([
-                        qc.invalidateQueries({ queryKey: ['ranking'] }),
-                        qc.invalidateQueries({ queryKey: ['members'] }),
-                      ]);
-                    })
-                  }
-                />
-              )
-            )}
-          </details>
-          <MemberBadge
-            badge={
-              featured && featured.earnedAt !== null
-                ? { badge: featured.badge, tier: featured.tier, earnedAt: featured.earnedAt }
-                : null
-            }
-          />
+          {clubRankingOn && (
+            <>
+              <details className="disclosure profile-achievements">
+                <summary>Conquistas neste clube</summary>
+                {achievements.isPending ? (
+                  <p className="muted-note">Carregando suas conquistas…</p>
+                ) : achievements.error ? (
+                  <p className="error-note">{errorMessage(achievements.error)}</p>
+                ) : (
+                  achievements.data && (
+                    <div className="stack">
+                      <AchievementCollection
+                        headingId="profile-achievements-title"
+                        achievements={achievements.data.participation.achievements}
+                        selected={achievements.data.participation.badge}
+                        busy={busy}
+                        onChoose={(badge: RankingBadge | null) =>
+                          void run(async () => {
+                            await api('/club/ranking/participation', json('PATCH', { badge }));
+                            await Promise.all([
+                              qc.invalidateQueries({ queryKey: ['ranking'] }),
+                              qc.invalidateQueries({ queryKey: ['members'] }),
+                            ]);
+                          })
+                        }
+                      />
+                      <div className="ranking-participation">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={pendingVisibility ?? achievements.data.participation.enabled}
+                            disabled={busy}
+                            onChange={(e) => {
+                              const enabled = e.target.checked;
+                              setPendingVisibility(enabled);
+                              void run(async () => {
+                                try {
+                                  await api(
+                                    '/club/ranking/participation',
+                                    json('PATCH', { enabled }),
+                                  );
+                                  onProfile({ ...member, rankingEnabled: enabled });
+                                  await Promise.all([
+                                    qc.invalidateQueries({ queryKey: ['ranking'] }),
+                                    qc.invalidateQueries({ queryKey: ['members'] }),
+                                    qc.invalidateQueries({ queryKey: ['session'] }),
+                                  ]);
+                                } finally {
+                                  setPendingVisibility(null);
+                                }
+                              });
+                            }}
+                          />{' '}
+                          Mostrar ranking e conquistas para mim
+                        </label>
+                        <small>
+                          Ocultar esconde o atalho do ranking e os avisos para você, mas você
+                          continua participando do placar do clube.
+                        </small>
+                      </div>
+                    </div>
+                  )
+                )}
+              </details>
+              <MemberBadge
+                badge={
+                  featured && featured.earnedAt !== null
+                    ? { badge: featured.badge, tier: featured.tier, earnedAt: featured.earnedAt }
+                    : null
+                }
+              />
+            </>
+          )}
           <div className="settings-block">
             <h4>Acesso</h4>
             {user ? (
