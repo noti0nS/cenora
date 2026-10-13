@@ -39,11 +39,12 @@ import {
   ShieldAlert,
   Users,
   Trophy,
+  Ellipsis,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import type { Media, Watchlist, SessionState, Member, Club, ShelfKind } from '@cenora/shared';
 import { api, json, errorMessage, RequestError, score } from '@/lib/api';
-import { Dropdown, MenuItem, Separator, Button } from './ui';
+import { Dropdown, MenuItem, MenuCheckboxItem, MenuRadioItems, Separator, Button } from './ui';
 import { Access } from './access';
 import { Poster } from './poster';
 import { Wordmark, CarrotMark } from './brand';
@@ -56,6 +57,7 @@ import { Roleta } from './roleta';
 import { Avatar } from './avatar';
 import { ClubRankingDialog } from './club-ranking';
 import { RecommendationsDialog } from './recommendations';
+import { DiscoverySection } from './discovery-section';
 
 type Kind = ShelfKind;
 type Page = { items: Media[]; nextOffset: number | null };
@@ -608,35 +610,80 @@ function App() {
               ))}
             </div>
             <div className="toolbar-end">
-              <button className="chip" onClick={() => setRecommending(true)}>
-                <Sparkles size={14} />
-                <span>Recomendações</span>
-              </button>
-              <button className="chip roleta-chip" onClick={() => setSpinning(true)}>
-                <Dices size={14} />
-                <span>Roleta</span>
-              </button>
-              <button
-                className={`chip mine ${mine ? 'on' : ''}`}
-                aria-pressed={mine}
-                onClick={() => {
-                  setStatus('');
-                  navigate({ mine: !mine });
-                }}
-              >
-                <UserRound size={13} />
-                <span>Só os meus</span>
-              </button>
-              <select
-                className="sort"
-                aria-label="Ordenar títulos"
-                value={sort}
-                onChange={(e) => setSort(e.target.value)}
-              >
-                <option value="recent">Recentes</option>
-                <option value="title">A–Z</option>
-                <option value="rating">Nota do grupo</option>
-              </select>
+              <div className="shelf-desktop-controls">
+                <button className="chip" onClick={() => setRecommending(true)}>
+                  <Sparkles size={14} />
+                  <span>O que assistir</span>
+                </button>
+                <button className="chip roleta-chip" onClick={() => setSpinning(true)}>
+                  <Dices size={14} />
+                  <span>Roleta</span>
+                </button>
+                <button
+                  className={`chip mine ${mine ? 'on' : ''}`}
+                  aria-pressed={mine}
+                  onClick={() => {
+                    setStatus('');
+                    navigate({ mine: !mine });
+                  }}
+                >
+                  <UserRound size={13} />
+                  <span>Só os meus</span>
+                </button>
+                <select
+                  className="sort"
+                  aria-label="Ordenar títulos"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                >
+                  <option value="recent">Recentes</option>
+                  <option value="title">A–Z</option>
+                  <option value="rating">Nota do grupo</option>
+                </select>
+              </div>
+              <div className="shelf-mobile-controls">
+                <Dropdown
+                  trigger={
+                    <button
+                      className={`icon-button shelf-tools-trigger ${mine || sort !== 'recent' ? 'has-selection' : ''}`}
+                      aria-label="Opções da estante"
+                      title="Opções da estante"
+                    >
+                      <Ellipsis size={21} />
+                    </button>
+                  }
+                >
+                  <div className="menu-caption">{mine ? 'Sua fila' : 'Estante do clube'}</div>
+                  <MenuItem onSelect={() => setRecommending(true)}>
+                    <Sparkles size={16} /> O que assistir
+                  </MenuItem>
+                  <MenuItem onSelect={() => setSpinning(true)}>
+                    <Dices size={16} /> Roleta
+                  </MenuItem>
+                  <Separator />
+                  <MenuCheckboxItem
+                    checked={mine}
+                    onCheckedChange={(checked) => {
+                      setStatus('');
+                      navigate({ mine: checked });
+                    }}
+                  >
+                    <UserRound size={16} /> Só os meus
+                  </MenuCheckboxItem>
+                  <Separator />
+                  <div className="menu-caption">Ordenar por</div>
+                  <MenuRadioItems
+                    label="Ordenar títulos"
+                    value={sort}
+                    onChange={setSort}
+                    options={[
+                      { value: 'recent', label: 'Recentes' },
+                      { value: 'title', label: 'A–Z' },
+                      { value: 'rating', label: 'Nota do grupo' },
+                    ]}
+                  />
+                </Dropdown>
+              </div>
             </div>
           </div>
           {watchingItems.length > 0 && (
@@ -666,6 +713,13 @@ function App() {
               </ul>
             </section>
           )}
+          <DiscoverySection
+            key={`${member.id}:${kind}`}
+            kind={kind}
+            memberId={member.id}
+            ensureList={ensureList}
+            onPick={(id, selectedKind) => navigate({ media: id, kind: selectedKind })}
+          />
           <main id="shelf" tabIndex={-1} aria-label={kindCopy[kind].tab}>
             {media.isPending ? (
               <div className="shelf" aria-label="Carregando títulos">
@@ -761,6 +815,8 @@ function App() {
             catalogAvailable={Boolean(session.data?.catalogAvailable)}
             clubName={session.data?.club?.name ?? null}
             canRemove={member.role === 'owner'}
+            ensureList={ensureList}
+            onRecommended={(id, recommendedKind) => navigate({ media: id, kind: recommendedKind })}
           />
           <Roleta
             open={spinning}
@@ -779,7 +835,6 @@ function App() {
             kind={kind}
             mine={mine}
             memberId={member.id}
-            ensureList={ensureList}
             onPick={(id, selectedKind) => {
               setRecommending(false);
               navigate({ kind: selectedKind, media: id });

@@ -186,6 +186,17 @@ describe('private recommendations', () => {
     const outside = await createClub('Outro clube');
     expect((await result('?kind=tv', outside.cookie)).shelf).toEqual([]);
     expect((await result('', outside.cookie)).shelf).toEqual([]);
+    expect(
+      (await request(`/media/${movie.id}/recommendations`, 'GET', undefined, outside.cookie))
+        .status,
+    ).toBe(404);
+    expect((await request(`/media/${movie.id}/recommendations`, 'GET', undefined, '')).status).toBe(
+      401,
+    );
+    const contextual = await request(`/media/${movie.id}/recommendations`);
+    expect(contextual.status).toBe(200);
+    expect(contextual.headers.get('cache-control')).toBe('no-store');
+    expect(await contextual.json()).toMatchObject({ results: [], available: false });
   });
 });
 describe('private club ranking', () => {

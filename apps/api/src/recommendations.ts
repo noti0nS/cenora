@@ -1,7 +1,42 @@
-import type { CatalogResult, Media, Recommendations, ShelfKind } from '@cenora/shared';
+import type {
+  CatalogResult,
+  Media,
+  Recommendations,
+  RelatedTitles,
+  ShelfKind,
+} from '@cenora/shared';
 import { normalizeName } from '@cenora/shared';
 import type { Env } from './lib';
 import { recommendationCatalog } from './providers';
+
+/** Contextual recommendations use only the opened title, regardless of personal ratings. */
+export async function relatedTitles(
+  env: Env,
+  title: Media,
+  clubTitles: Pick<Media, 'id' | 'tmdbId' | 'kind' | 'isAnime'>[],
+): Promise<RelatedTitles> {
+  if (!env.TMDB_TOKEN || !title.tmdbId) return { results: [], available: false, stale: false };
+  const result = await recommendationCatalog(
+    env,
+    title.isAnime ? 'anime' : title.kind,
+    title.tmdbId,
+  );
+  return {
+    results: result.items
+      .filter((item) => item.tmdbId !== title.tmdbId)
+      .slice(0, 8)
+      .map((item) => {
+        const existing = clubTitles.find((m) => m.kind === item.kind && m.tmdbId === item.tmdbId);
+        return {
+          ...item,
+          existingId: existing?.id ?? null,
+          isAnime: existing?.isAnime ?? item.isAnime,
+        };
+      }),
+    available: true,
+    stale: result.stale,
+  };
+}
 
 /** A bounded, deterministic layer over TMDB recommendations, not a trained model. */
 export async function recommendations(
@@ -9,6 +44,7 @@ export async function recommendations(
   kind: ShelfKind,
   clubTitles: Media[],
   mine: boolean,
+  includeDiscover = false,
 ): Promise<Recommendations> {
   const mediaKind = kind === 'movie' ? 'movie' : 'tv';
   const titles = clubTitles.filter((m) => m.kind === mediaKind && m.isAnime === (kind === 'anime'));
@@ -60,7 +96,7 @@ export async function recommendations(
       } else degraded = true;
     }
     // An empty recommendation feed should not strand a new member or a niche title.
-    if (![...candidates.values()].some((c) => isNew(c.item))) {
+    if (includeDiscover && ![...candidates.values()].some((c) => isNew(c.item))) {
       try {
         const result = await recommendationCatalog(env, kind);
         collect(result.items);
@@ -70,7 +106,7 @@ export async function recommendations(
       }
     }
   }
-  const discover = [...candidates.values()]
+  const discover = (includeDiscover ? [...candidates.values()] : [])
     .filter((c) => isNew(c.item))
     .sort((a, b) => b.weight - a.weight || a.item.tmdbId - b.item.tmdbId)
     .slice(0, 12)

@@ -223,6 +223,11 @@ export interface Recommendations {
   degraded: boolean;
   stale: boolean;
 }
+export interface RelatedTitles {
+  results: CatalogResult[];
+  available: boolean;
+  stale: boolean;
+}
 export interface SessionUser {
   id: string;
   email: string | null;

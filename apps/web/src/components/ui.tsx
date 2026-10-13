@@ -102,6 +102,48 @@ export function MenuItem({
   );
 }
 export const Separator = () => <Menu.Separator className="separator" />;
+export function MenuCheckboxItem({
+  children,
+  checked,
+  onCheckedChange,
+}: {
+  children: React.ReactNode;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <Menu.CheckboxItem className="menu-item" checked={checked} onCheckedChange={onCheckedChange}>
+      {children}
+      <Menu.ItemIndicator className="menu-selection">
+        <Check size={15} />
+      </Menu.ItemIndicator>
+    </Menu.CheckboxItem>
+  );
+}
+export function MenuRadioItems({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Menu.RadioGroup aria-label={label} value={value} onValueChange={onChange}>
+      {options.map((option) => (
+        <Menu.RadioItem key={option.value} className="menu-item" value={option.value}>
+          {option.label}
+          <Menu.ItemIndicator className="menu-selection">
+            <Check size={15} />
+          </Menu.ItemIndicator>
+        </Menu.RadioItem>
+      ))}
+    </Menu.RadioGroup>
+  );
+}
 export function Button({
   children,
   busy = false,

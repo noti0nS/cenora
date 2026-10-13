@@ -13,7 +13,7 @@ import { ApiError, body, checkpoint, id, owner, type AppEnv } from './lib';
 import { catalogDetails, availability, imdbRating, searchCatalog, biography } from './providers';
 import { metadataSeasons, progressUnits, recordProgress } from './ranking';
 import { awardAchievements } from './achievements';
-import { recommendations } from './recommendations';
+import { recommendations, relatedTitles } from './recommendations';
 
 type Row = Record<string, any>;
 export const mediaSelect = `WITH ratings AS (SELECT mm.media_id,AVG(mm.half_points/2.0) average,COUNT(mm.half_points) rating_count FROM member_media mm JOIN members rater ON rater.id=mm.member_id JOIN media rated ON rated.id=mm.media_id WHERE rated.club_id=? AND rater.club_id=rated.club_id AND rater.active=1 GROUP BY mm.media_id)
@@ -198,7 +198,13 @@ mediaRoutes.get('/recommendations', async (c) => {
     .bind(c.get('club').id, c.get('member').id, c.get('club').id)
     .all<Row>();
   return c.json(
-    await recommendations(c.env, kind, result.results.map(toMedia), c.req.query('mine') === 'true'),
+    await recommendations(
+      c.env,
+      kind,
+      result.results.map(toMedia),
+      c.req.query('mine') === 'true',
+      c.req.query('discover') === 'true',
+    ),
   );
 });
 /** Random candidates for the Roleta: titles nobody has finished and this member has not closed. */
@@ -293,6 +299,26 @@ mediaRoutes.post('/catalog', async (c) => {
   const mediaId = await registerCatalog(c, await body(c, catalogSchema));
   const { media } = await getMedia(c, mediaId);
   return c.json({ id: mediaId, isAnime: media.isAnime }, 201);
+});
+mediaRoutes.get('/:id/recommendations', async (c) => {
+  const { media } = await getMedia(c, c.req.param('id'));
+  const titles = await c.env.DB.prepare(
+    'SELECT id,tmdb_id,kind,is_anime FROM media WHERE club_id=? AND kind=?',
+  )
+    .bind(c.get('club').id, media.kind)
+    .all<{ id: string; tmdb_id: number | null; kind: 'movie' | 'tv'; is_anime: number }>();
+  return c.json(
+    await relatedTitles(
+      c.env,
+      media,
+      titles.results.map((m) => ({
+        id: m.id,
+        tmdbId: m.tmdb_id,
+        kind: m.kind,
+        isAnime: m.is_anime === 1,
+      })),
+    ),
+  );
 });
 mediaRoutes.get('/:id', async (c) => {
   const { row, media } = await getMedia(c, c.req.param('id'));

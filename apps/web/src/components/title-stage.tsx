@@ -1,12 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence } from 'motion/react';
 import * as m from 'motion/react-m';
 import { ExternalLink, Link2, Loader2, Pencil, Share2, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CatalogResult, Media, MediaDetails } from '@cenora/shared';
+import type { CatalogResult, Media, MediaDetails, ShelfKind } from '@cenora/shared';
 import { api, json, score, errorMessage } from '@/lib/api';
 import { useTitleTracking } from './use-title-tracking';
 import { Modal, Button } from './ui';
@@ -16,6 +16,7 @@ import { MovieSession } from './movie-session';
 import { ShowTracker } from './show-tracker';
 import { ManualEditor, PersonDialog } from './title-tools';
 import { ShareSheet } from './share-sheet';
+import { TitleRecommendations } from './title-recommendations';
 
 export function TitleStage({
   id,
@@ -24,6 +25,8 @@ export function TitleStage({
   catalogAvailable,
   clubName,
   canRemove,
+  ensureList,
+  onRecommended,
 }: {
   id: string | null;
   preview: Media | null;
@@ -31,6 +34,8 @@ export function TitleStage({
   catalogAvailable: boolean;
   clubName: string | null;
   canRemove: boolean;
+  ensureList: () => Promise<string>;
+  onRecommended: (id: string, kind: ShelfKind) => void;
 }) {
   const query = useQuery({
     queryKey: ['detail', id],
@@ -38,6 +43,7 @@ export function TitleStage({
     enabled: Boolean(id),
   });
   const [lastTitle, setLastTitle] = useState('Título');
+  const scroll = useRef<HTMLDivElement>(null);
   const title = query.data?.title || preview?.title || lastTitle;
   useEffect(() => {
     if (title !== 'Título') setLastTitle(title);
@@ -72,7 +78,7 @@ export function TitleStage({
                 <Dialog.Close className="stage-close" aria-label="Fechar">
                   <X size={20} />
                 </Dialog.Close>
-                <div className="stage-scroll">
+                <div className="stage-scroll" ref={scroll}>
                   <Dialog.Title className="sr-only">{title}</Dialog.Title>
                   <Dialog.Description className="sr-only">
                     Detalhes e progresso de {title}
@@ -101,6 +107,11 @@ export function TitleStage({
                             clubName={clubName}
                             canRemove={canRemove}
                             onRemoved={onClose}
+                            ensureList={ensureList}
+                            onRecommended={(id, kind) => {
+                              scroll.current?.scrollTo({ top: 0 });
+                              onRecommended(id, kind);
+                            }}
                           />
                         ) : (
                           <Pending title={title} kind={preview?.kind} />
@@ -165,12 +176,16 @@ function Loaded({
   clubName,
   canRemove,
   onRemoved,
+  ensureList,
+  onRecommended,
 }: {
   data: MediaDetails;
   catalogAvailable: boolean;
   clubName: string | null;
   canRemove: boolean;
   onRemoved: () => void;
+  ensureList: () => Promise<string>;
+  onRecommended: (id: string, kind: ShelfKind) => void;
 }) {
   const qc = useQueryClient();
   const tracking = useTitleTracking(data);
@@ -375,6 +390,9 @@ function Loaded({
             </button>
           )}
         </div>
+      )}
+      {data.tmdbId && catalogAvailable && (
+        <TitleRecommendations data={data} ensureList={ensureList} onPick={onRecommended} />
       )}
       <Modal
         open={confirmRemoval}

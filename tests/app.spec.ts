@@ -1,5 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { openShelfAction } from './helpers/shelf';
 
 /** Simula só o widget externo; os fluxos de conta continuam usando o Worker real. */
 async function mockTurnstile(context: BrowserContext) {
@@ -91,31 +92,42 @@ const savedAs = (page: Page, fragment: string) =>
       (r.request().postData() || '').includes(fragment) &&
       r.ok(),
   );
-test('recommendations offer shelf picks and graceful discovery without a configured catalog', async ({
+test('shelf picks stay separate from opt-in discovery without a configured catalog', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Recomendações' });
-  await expect(dialog.getByText('Conecte o catálogo TMDB', { exact: false })).toBeVisible();
+  let discoveryRequests = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('discover=true')) discoveryRequests++;
+  });
+  await page.getByRole('button', { name: 'O que assistir', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'O que assistir' });
   await expect(
     dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
   ).toHaveCount(12);
-  await dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }).click();
   await expect(
-    dialog.getByText('Nenhuma novidade disponível agora.', { exact: false }),
-  ).toBeVisible();
-  await dialog.getByRole('button', { name: 'Da estante', exact: true }).click();
+    dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }),
+  ).toHaveCount(0);
+  expect(discoveryRequests).toBe(0);
   const title = await dialog.locator('.recommendation-results strong').first().textContent();
   await dialog.locator('.catalog-result').first().click();
   await expect(page.getByRole('dialog', { name: title!, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Fechar', exact: true }).click();
   await page.getByRole('tab', { name: /Animes/ }).click();
-  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
+  await page.getByRole('button', { name: 'O que assistir', exact: true }).click();
   await expect(
     dialog.getByRole('list', { name: 'Sugestões da estante' }).locator('li'),
   ).toHaveCount(3);
-  await expect(dialog.getByText('Sugestões de animes para você', { exact: false })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
+  const discovery = page.getByRole('region', { name: 'Novidades para você' });
+  await expect(discovery.locator('.discovery-content')).toHaveCount(0);
+  await discovery.getByRole('button', { name: 'Ver sugestões de novos títulos' }).click();
+  await expect(
+    discovery.getByText('As sugestões ficam disponíveis', { exact: false }),
+  ).toBeVisible();
+  expect(discoveryRequests).toBe(1);
+  await discovery.getByRole('button', { name: 'Ocultar sugestões' }).click();
+  await expect(discovery.locator('.discovery-content')).toHaveCount(0);
 });
 
 test('recommendation discovery adds through the catalog contract and opens the title on mobile', async ({
@@ -161,18 +173,110 @@ test('recommendation discovery adds through the catalog contract and opens the t
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Recomendações', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Recomendações' });
-  await dialog.getByRole('button', { name: 'Descobrir novidades', exact: true }).click();
-  await expect(dialog.getByText('Porque você gostou de A Origem')).toBeVisible();
+  const discovery = page.getByRole('region', { name: 'Novidades para você' });
+  await expect(discovery.locator('.title-suggestions-strip')).toHaveCount(0);
+  await discovery.getByRole('button', { name: 'Ver sugestões de novos títulos' }).click();
+  await expect(discovery.getByText('Sugestões do TMDB a partir', { exact: false })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await dialog
+  await discovery
     .getByRole('button', { name: `Adicionar ${target.title} à estante`, exact: true })
     .click();
   await expect(page.getByRole('dialog', { name: target.title, exact: true })).toBeVisible();
   expect(added).toBe(true);
+});
+
+test('opening a show loads contextual recommendations and can open an existing club title', async ({
+  page,
+}) => {
+  const titles = (await (await page.request.get('/api/media?kind=tv')).json()).items;
+  const seed = titles[0];
+  const related = titles[1];
+  await page.route('**/api/auth/session', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), catalogAvailable: true } });
+  });
+  await page.route(`**/api/media/${seed.id}`, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), tmdbId: 50 } });
+  });
+  let calls = 0;
+  await page.route(`**/api/media/${seed.id}/recommendations`, (route) => {
+    calls++;
+    return route.fulfill({
+      json: {
+        results: [
+          {
+            tmdbId: 51,
+            title: related.title,
+            kind: 'tv',
+            isAnime: false,
+            year: null,
+            synopsis: '',
+            posterUrl: null,
+            existingId: related.id,
+          },
+        ],
+        available: true,
+        stale: false,
+      },
+    });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?kind=tv');
+  expect(calls).toBe(0);
+  await page.getByRole('button', { name: `Abrir ${seed.title}`, exact: true }).click();
+  const section = page.getByRole('region', { name: 'Parecidos com este título' });
+  await expect(section.getByText(`Sugestões do TMDB a partir de ${seed.title}.`)).toBeVisible();
+  await expect(section.getByText('Já na estante')).toBeVisible();
+  expect(calls).toBe(1);
+  expect(await section.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+    true,
+  );
+  await section.getByRole('button', { name: `Abrir ${related.title}`, exact: true }).click();
+  await expect(page.getByRole('dialog', { name: related.title, exact: true })).toBeVisible();
+  await expect(page.locator('.stage-scroll')).toHaveJSProperty('scrollTop', 0);
+});
+
+test('mobile groups secondary controls into one shelf menu without changing desktop shortcuts', async ({
+  page,
+}) => {
+  await mkdir('artifacts', { recursive: true });
+  for (const width of [320, 390, 600, 760]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await expect(page.locator('.header-actions button:visible')).toHaveCount(2);
+    await expect(page.locator('.shelf-desktop-controls')).not.toBeVisible();
+    expect((await page.locator('.toolbar').boundingBox())!.height).toBeLessThanOrEqual(44);
+    const options = page.getByRole('button', { name: 'Opções da estante' });
+    await options.click();
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Só os meus' })).not.toBeChecked();
+    await page.getByRole('menuitemcheckbox', { name: 'Só os meus' }).click();
+    await expect(options).toHaveClass(/has-selection/);
+    await options.click();
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Só os meus' })).toBeChecked();
+    await page.getByRole('menuitemcheckbox', { name: 'Só os meus' }).click();
+    await options.click();
+    await page.getByRole('menuitemradio', { name: 'A–Z', exact: true }).click();
+    await options.click();
+    await expect(page.getByRole('menuitemradio', { name: 'A–Z', exact: true })).toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(options).toBeFocused();
+    await openShelfAction(page, 'O que assistir');
+    await expect(page.getByRole('dialog', { name: 'O que assistir' })).toBeVisible();
+    await page.getByRole('button', { name: 'Fechar', exact: true }).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    if (width === 390)
+      await page.screenshot({ path: 'artifacts/shelf-mobile-clean.png', animations: 'disabled' });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.locator('.header-actions button:visible')).toHaveCount(4);
+  await expect(page.getByRole('button', { name: 'O que assistir', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Roleta', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Ordenar títulos')).toBeVisible();
 });
 
 test('movie poster stays in place while session status changes and autosaves', async ({ page }) => {

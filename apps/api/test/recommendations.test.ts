@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Media } from '@cenora/shared';
 import type { Env } from '../src/lib';
-import { recommendations } from '../src/recommendations';
+import { recommendations, relatedTitles } from '../src/recommendations';
 
 function media(id: number, overrides: Partial<Media> = {}): Media {
   return {
@@ -78,7 +78,7 @@ describe('TMDB recommendations', () => {
       media(3),
       media(4, { personal: personal(null, 'want') }),
     ];
-    const result = await recommendations(env, 'movie', titles, false);
+    const result = await recommendations(env, 'movie', titles, false, true);
     expect(result.personalized).toBe(true);
     expect(result.discover.map((m) => m.tmdbId)).toEqual([10, 11]);
     expect(result.shelf.map((m) => m.id)).toEqual(['media-3', 'media-4']);
@@ -125,7 +125,7 @@ describe('TMDB recommendations', () => {
       }),
     );
     vi.stubGlobal('fetch', fetch);
-    const anime = await recommendations(env, 'anime', [], false);
+    const anime = await recommendations(env, 'anime', [], false, true);
     expect(anime.personalized).toBe(false);
     expect(anime.discover.map((m) => m.tmdbId)).toEqual([10]);
     expect(anime.discover[0]).toMatchObject({
@@ -136,7 +136,7 @@ describe('TMDB recommendations', () => {
     const url = fetch.mock.calls[0][0] as URL;
     expect(url.searchParams.get('with_genres')).toBe('16');
     expect(url.searchParams.get('with_origin_country')).toBe('JP');
-    const shows = await recommendations(env, 'tv', [], false);
+    const shows = await recommendations(env, 'tv', [], false, true);
     expect(shows.discover.map((m) => m.tmdbId)).toEqual([11, 12]);
   });
 
@@ -147,7 +147,7 @@ describe('TMDB recommendations', () => {
       vi.fn(async () => Response.json({ results: [catalog(10), catalog(11)] })),
     );
     const titles = [media(10, { kind: 'tv', isAnime: true }), media(11)];
-    const result = await recommendations(env, 'tv', titles, false);
+    const result = await recommendations(env, 'tv', titles, false, true);
     expect(result.discover.map((m) => m.tmdbId)).toEqual([11]);
     expect(result.shelf).toEqual([]);
   });
@@ -202,6 +202,7 @@ describe('TMDB recommendations', () => {
       'movie',
       [media(1, { personal: personal(9) }), media(2, { personal: personal(8) })],
       false,
+      true,
     );
     expect(result).toMatchObject({ stale: true, degraded: true, personalized: true });
     expect(result.discover.map((m) => m.tmdbId)).toEqual([10]);
@@ -222,6 +223,7 @@ describe('TMDB recommendations', () => {
       'movie',
       [media(1, { personal: personal(9) }), ...Array.from({ length: 20 }, (_, i) => media(10 + i))],
       false,
+      true,
     );
     expect(result.personalized).toBe(false);
     expect(result.discover).toHaveLength(12);
@@ -247,6 +249,7 @@ describe('TMDB recommendations', () => {
         media(3, { tmdbId: null, title: 'A Origem', year: 2010 }),
       ],
       false,
+      true,
     );
     expect(result.discover.map((m) => m.tmdbId)).toEqual([10]);
     expect(result.shelf[0]).toMatchObject({
@@ -254,5 +257,44 @@ describe('TMDB recommendations', () => {
       reason: 'Porque você gostou de Título 1',
     });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('never discovers popular titles without explicit opt-in', async () => {
+    const { env } = environment();
+    const fetch = vi.fn(async () => Response.json({ results: [] }));
+    vi.stubGlobal('fetch', fetch);
+    expect((await recommendations(env, 'movie', [media(1)], false)).discover).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+    await recommendations(env, 'movie', [media(1)], false, true);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('contextual suggestions use the opened title, not personal favorites, and link existing club titles', async () => {
+    const { env } = environment();
+    const fetch = vi.fn(async (url: URL) => {
+      expect(url.pathname).toBe('/3/tv/50/recommendations');
+      return Response.json({ results: [catalog(50), catalog(51), catalog(52)] });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const result = await relatedTitles(env, media(50, { kind: 'tv' }), [
+      media(51, { kind: 'tv' }),
+      media(52),
+    ]);
+    expect(result.results.map((m) => m.tmdbId)).toEqual([51, 52]);
+    expect(result.results[0].existingId).toBe('media-51');
+    expect(result.results[1].existingId).toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('manual or unconfigured titles do not request contextual suggestions', async () => {
+    const { env } = environment();
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    expect(await relatedTitles(env, media(1, { tmdbId: null }), [])).toMatchObject({
+      results: [],
+      available: false,
+    });
+    expect(await relatedTitles(environment('').env, media(1), [])).toMatchObject({
+      results: [],
+      available: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

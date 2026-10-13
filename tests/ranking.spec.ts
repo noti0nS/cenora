@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { openClubAction } from './helpers/shelf';
 
 test('private ranking: movies, episodes, badges, opt-out, themes and mobile layout', async ({
   page,
@@ -168,7 +169,7 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await dialog.getByText('Como funciona', { exact: true }).click();
     await expect(dialog.getByText(/O mês segue o horário de Brasília/)).toBeVisible();
     await dialog.getByRole('button', { name: 'Fechar', exact: true }).click();
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();

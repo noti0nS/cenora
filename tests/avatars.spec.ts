@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { openClubAction } from './helpers/shelf';
 
 async function createProfile(page: Page) {
   await page.goto('/');
@@ -34,7 +35,7 @@ test('choose a preset, keep it across reloads, show it to participants and remov
   await expect(page.locator('.header-avatar img')).toHaveAttribute('src', '/avatars/gato.svg');
   await page.reload();
   await expect(page.locator('.header-avatar img')).toHaveAttribute('src', '/avatars/gato.svg');
-  await page.getByRole('button', { name: /Clubes e participantes\. Clube atual:/ }).click();
+  await openClubAction(page, 'Clubes e participantes');
   await expect(page.locator('.roster-row .profile-avatar img')).toHaveAttribute(
     'src',
     '/avatars/gato.svg',

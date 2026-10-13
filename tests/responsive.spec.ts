@@ -1,4 +1,5 @@
 import { test, expect, type BrowserContext, type Locator } from '@playwright/test';
+import { openShelfAction, openClubAction } from './helpers/shelf';
 
 const origin = 'http://127.0.0.1:8788';
 const memberName = 'ParticipanteComUmNomeMuitoLongoParaTeste';
@@ -124,15 +125,15 @@ for (const width of [320, 360, 390, 520, 600, 760, 768, 840, 900, 1024, 1100, 11
     await page.getByRole('button', { name: 'Limpar busca' }).click();
     await search.press('Escape');
     await headerFits(header);
-    await page.getByRole('button', { name: 'Só os meus', exact: true }).click();
+    await openShelfAction(page, 'Só os meus');
     await fits(page.locator('.toolbar'));
     await fits(page.locator('.toolbar-end'));
-    await page.getByRole('button', { name: 'Só os meus', exact: true }).click();
+    await openShelfAction(page, 'Só os meus');
 
     await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
     await fits(page.getByRole('dialog'));
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
-    await page.getByRole('button', { name: /^Clubes e participantes/ }).click();
+    await openClubAction(page, 'Clubes e participantes');
     await fits(page.getByRole('dialog'));
     await fits(page.locator('.club-detail'));
     await page.getByRole('button', { name: /Criar, entrar ou trazer/ }).click();
@@ -140,7 +141,7 @@ for (const width of [320, 360, 390, 520, 600, 760, 768, 840, 900, 1024, 1100, 11
     await fits(page.locator('.club-add'));
     await page.getByRole('button', { name: 'Fechar', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Ranking do clube', exact: true }).click();
+    await openClubAction(page, 'Ranking do clube');
     await fits(page.getByRole('dialog'));
     await fits(page.locator('.ranking-controls'));
     await fits(page.locator('.ranking-roster'));
@@ -175,7 +176,7 @@ for (const width of [320, 360, 390, 520, 600, 760, 768, 840, 900, 1024, 1100, 11
       await page.keyboard.press('Escape');
     }
     await page.getByRole('tab', { name: /Filmes/ }).click();
-    await page.getByRole('button', { name: 'Roleta', exact: true }).click();
+    await openShelfAction(page, 'Roleta');
     await expect(page.getByRole('button', { name: 'Abrir título', exact: true })).toBeVisible({
       timeout: 10000,
     });
