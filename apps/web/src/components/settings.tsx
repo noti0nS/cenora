@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Shield, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ClubRanking, Member, RankingBadge, SessionState } from '@cenora/shared';
+import type { Club, ClubRanking, Member, RankingBadge, SessionState } from '@cenora/shared';
 import { api, json, errorMessage, RequestError } from '@/lib/api';
 import { Modal, Button, Field, CodeReveal } from './ui';
 import { useTurnstile } from '@/lib/turnstile';
@@ -171,6 +171,7 @@ export function SettingsDialog({
     (award) => award.badge === achievements.data?.participation.badge && award.tier > 0,
   );
   const [name, setName] = useState(member.name),
+    [clubName, setClubName] = useState(''),
     [busy, setBusy] = useState(false),
     [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null),
     [confirm, setConfirm] = useState<{ label: string; run: () => Promise<void> } | null>(null),
@@ -184,6 +185,9 @@ export function SettingsDialog({
       setAttaching(false);
     }
   }, [open, member.name]);
+  useEffect(() => {
+    if (open) setClubName(session?.club?.name ?? '');
+  }, [open, session?.club?.name]);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['session'] });
     void qc.invalidateQueries({ queryKey: ['members'] });
@@ -204,6 +208,8 @@ export function SettingsDialog({
   };
   const user = session?.user ?? null;
   const scoped = Boolean(session?.scoped);
+  const club = session?.club ?? null;
+  const isOwner = member.role === 'owner';
   const profile = async (e: React.FormEvent) => {
     e.preventDefault();
     await run(async () => {
@@ -212,6 +218,26 @@ export function SettingsDialog({
       onProfile(updated);
       void qc.invalidateQueries({ queryKey: ['members'] });
       toast.success('Seu nome foi atualizado.');
+    });
+  };
+  const saveClubName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await run(async () => {
+      const updated = await api<Club>('/club', json('PATCH', { name: clubName }));
+      setClubName(updated.name);
+      qc.setQueryData<SessionState>(['session'], (old) =>
+        old
+          ? {
+              ...old,
+              club: old.club ? { ...old.club, name: updated.name } : old.club,
+              clubs: old.clubs.map((option) =>
+                option.clubId === updated.id ? { ...option, name: updated.name } : option,
+              ),
+            }
+          : old,
+      );
+      refresh();
+      toast.success('O nome do clube foi atualizado.');
     });
   };
   const showCode = (label: string, value: string) => {
@@ -268,6 +294,27 @@ export function SettingsDialog({
               Salvar nome
             </Button>
           </form>
+          {isOwner && club && (
+            <form className="stack" onSubmit={saveClubName}>
+              <Field label="Nome do clube" hint="Aparece para todos os participantes.">
+                <input
+                  required
+                  minLength={2}
+                  maxLength={60}
+                  value={clubName}
+                  onChange={(e) => setClubName(e.target.value)}
+                />
+              </Field>
+              <Button
+                type="submit"
+                className="secondary"
+                busy={busy}
+                disabled={clubName.trim().length < 2 || clubName.trim() === club.name}
+              >
+                Salvar nome do clube
+              </Button>
+            </form>
+          )}
           {clubRankingOn && (
             <>
               <details className="disclosure profile-achievements">

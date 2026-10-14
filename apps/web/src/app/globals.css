@@ -1683,6 +1683,30 @@ summary {
   font-weight: 500;
   letter-spacing: -0.4px;
 }
+.club-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.club-title h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.club-title .text-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.club-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .roster {
   display: flex;
   flex-direction: column;

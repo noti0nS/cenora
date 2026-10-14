@@ -9,6 +9,7 @@ import {
   Link2,
   Lock,
   LogIn,
+  Pencil,
   Plus,
   RefreshCw,
   Shield,
@@ -54,6 +55,7 @@ export function ClubsDialog({
   const [createName, setCreateName] = useState('');
   const [createClubName, setCreateClubName] = useState('');
   const [clubName, setClubName] = useState('');
+  const [renaming, setRenaming] = useState(false);
   const [bringMode, setBringMode] = useState<'claim' | 'recovery'>('claim');
   const [bringCode, setBringCode] = useState('');
   const [passwordEdit, setPasswordEdit] = useState(false);
@@ -106,6 +108,7 @@ export function ClubsDialog({
       setCode(null);
       setJoinPassword('');
       setCreateClubName('');
+      setRenaming(false);
       setPasswordEdit(false);
       setPasswordValue('');
     }
@@ -198,6 +201,7 @@ export function ClubsDialog({
     void run(async () => {
       const updated = await api<Club>('/club', json('PATCH', { name: clubName }));
       setClubName(updated.name);
+      setRenaming(false);
       qc.setQueryData<SessionState>(['session'], (old) =>
         old
           ? {
@@ -556,7 +560,59 @@ export function ClubsDialog({
             ) : (
               club && (
                 <>
-                  <h3>{club.name}</h3>
+                  <div className="club-title">
+                    <h3>{club.name}</h3>
+                    {isOwner && !renaming && (
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={() => {
+                          setClubName(club.name);
+                          setRenaming(true);
+                        }}
+                      >
+                        <Pencil size={14} />
+                        Renomear
+                      </button>
+                    )}
+                  </div>
+                  {isOwner && renaming && (
+                    <form className="stack" onSubmit={saveClubName}>
+                      <Field
+                        label="Nome do clube"
+                        hint="Escolha o nome que quiser para este clube."
+                      >
+                        <input
+                          autoFocus
+                          required
+                          minLength={2}
+                          maxLength={60}
+                          value={clubName}
+                          onChange={(e) => setClubName(e.target.value)}
+                        />
+                      </Field>
+                      <div className="club-title-actions">
+                        <Button
+                          type="submit"
+                          busy={busy}
+                          disabled={clubName.trim().length < 2 || clubName.trim() === club.name}
+                        >
+                          Salvar nome
+                        </Button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          disabled={busy}
+                          onClick={() => {
+                            setRenaming(false);
+                            setClubName(club.name);
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
+                  )}
                   <Segmented
                     value={tab}
                     onChange={(value) => {
