@@ -484,13 +484,12 @@ function App() {
             <div className="header-actions">
               {session.data?.club?.rankingEnabled && member.rankingEnabled !== false && (
                 <button
-                  className="ranking-trigger"
+                  className="icon-button ranking-trigger"
                   aria-label="Ranking do clube"
                   title="Ranking do clube"
                   onClick={() => setRankingOpen(true)}
                 >
                   <Trophy size={18} />
-                  <span>Conquistas</span>
                 </button>
               )}
               <Button className="add-button" aria-label="Adicionar" onClick={() => setAdd(true)}>
@@ -504,33 +503,52 @@ function App() {
                   </button>
                 }
               >
-                <div className="menu-caption member-name">{member.name}</div>
-                {session.data?.club && <div className="menu-caption">{session.data.club.name}</div>}
+                <div className="menu-identity">
+                  <Avatar member={member} className="menu-identity-avatar" />
+                  <div className="menu-identity-copy">
+                    <strong className="member-name">{member.name}</strong>
+                    {session.data?.club && <span>{session.data.club.name}</span>}
+                  </div>
+                  <MenuItem
+                    className="menu-theme-toggle"
+                    ariaLabel={`Usar tema ${theme === 'light' ? 'escuro' : 'claro'}`}
+                    title={`Usar tema ${theme === 'light' ? 'escuro' : 'claro'}`}
+                    onSelect={toggleTheme}
+                  >
+                    {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+                  </MenuItem>
+                </div>
                 {(session.data?.clubs.length ?? 0) > 1 && (
                   <>
                     <Separator />
-                    <div className="menu-caption">Seus clubes</div>
-                    {session.data!.clubs.map((option) => (
-                      <MenuItem
-                        key={option.memberId}
-                        onSelect={() => void switchClub(option.memberId)}
-                      >
-                        <Clapperboard size={16} />
-                        <span className="menu-club">
-                          {option.name}
-                          {option.memberId === member.id && <small>atual</small>}
-                        </span>
-                      </MenuItem>
-                    ))}
+                    <div className="menu-section-label">Trocar de clube</div>
+                    {session.data!.clubs.map((option) => {
+                      const active = option.memberId === member.id;
+                      return (
+                        <MenuItem
+                          key={option.memberId}
+                          className={active ? 'menu-club-item active' : 'menu-club-item'}
+                          onSelect={() => void switchClub(option.memberId)}
+                        >
+                          <Clapperboard size={15} />
+                          <span className="menu-club">
+                            {option.name}
+                            {active && <span className="sr-only"> atual</span>}
+                          </span>
+                          {active && (
+                            <span className="menu-selection" aria-hidden="true">
+                              <Check size={15} />
+                            </span>
+                          )}
+                        </MenuItem>
+                      );
+                    })}
                   </>
                 )}
+                <Separator />
                 <MenuItem onSelect={() => setSettings(true)}>
                   <UserRound size={16} />
                   Meu perfil
-                </MenuItem>
-                <MenuItem onSelect={toggleTheme}>
-                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}Usar tema{' '}
-                  {theme === 'light' ? 'escuro' : 'claro'}
                 </MenuItem>
                 <MenuItem onSelect={() => setClubsOpen(true)}>
                   <Users size={16} />

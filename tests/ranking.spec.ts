@@ -110,17 +110,20 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
     await expect(dialog.locator('.ranking-mine .ranking-badge')).toContainText(
       'Repertório de cinema',
     );
+    await dialog.getByRole('tab', { name: /^Conquistas/ }).click();
     await dialog.getByRole('button', { name: 'Remover selo Repertório de cinema' }).click();
     const debut = dialog.getByRole('button', { name: /selo Repertório de cinema/ });
     await debut.click();
     await expect(debut).toHaveAttribute('aria-pressed', 'true');
-    await expect(dialog.locator('.ranking-mine .ranking-badge')).toContainText(
-      'Repertório de cinema',
-    );
-    await expect(dialog.getByRole('button', { name: /Créditos finais/ })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: /Créditos finais/ })).toHaveCount(0);
+    await expect(dialog.getByText('Faltam 3 para o bronze')).toHaveCount(2);
     await expect(
       dialog.getByRole('progressbar', { name: 'Progresso de Repertório de cinema' }),
     ).toHaveAttribute('aria-valuemax', '15');
+    await dialog.getByRole('tab', { name: 'Placar', exact: true }).click();
+    await expect(dialog.locator('.ranking-mine .ranking-badge')).toContainText(
+      'Repertório de cinema',
+    );
     await mkdir('artifacts', { recursive: true });
     await page.screenshot({ path: 'artifacts/ranking-desktop-dark.png', animations: 'disabled' });
     await dialog.getByRole('button', { name: 'Séries', exact: true }).click();

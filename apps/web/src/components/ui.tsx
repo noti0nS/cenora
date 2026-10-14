@@ -85,17 +85,25 @@ export function MenuItem({
   onSelect,
   danger = false,
   disabled = false,
+  className,
+  ariaLabel,
+  title,
 }: {
   children: React.ReactNode;
   onSelect: () => void;
   danger?: boolean;
   disabled?: boolean;
+  className?: string;
+  ariaLabel?: string;
+  title?: string;
 }) {
   return (
     <Menu.Item
-      className={clsx('menu-item', danger && 'danger')}
+      className={clsx('menu-item', danger && 'danger', className)}
       onSelect={onSelect}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={title}
     >
       {children}
     </Menu.Item>

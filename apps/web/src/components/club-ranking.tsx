@@ -37,12 +37,14 @@ export function ClubRankingDialog({
   defaultKind: ShelfKind;
 }) {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<'board' | 'achievements'>('board');
   const [kind, setKind] = useState(defaultKind);
   const [period, setPeriod] = useState<'month' | 'all'>('month');
   const [busy, setBusy] = useState(false);
   const [pendingParticipation, setPendingParticipation] = useState<boolean | null>(null);
   useEffect(() => {
     if (open) {
+      setTab('board');
       setKind(defaultKind);
       setPeriod('month');
     }
@@ -84,6 +86,9 @@ export function ClubRankingDialog({
     }
   };
   const data = ranking.data;
+  const earnedCount = data
+    ? data.participation.achievements.reduce((sum, a) => sum + a.tier, 0)
+    : null;
   const month = data
     ? new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
         new Date(`${data.month}-01T12:00:00Z`),
@@ -98,25 +103,55 @@ export function ClubRankingDialog({
       description="Cada um no seu ritmo. A diversão é acompanhar juntos."
       className="ranking-dialog"
     >
-      <div className="ranking-controls">
-        <Segmented label="Categoria do ranking" value={kind} options={kinds} onChange={setKind} />
-        <Segmented
-          label="Período do ranking"
-          value={period}
-          options={[
-            { value: 'month', label: 'Este mês' },
-            { value: 'all', label: 'Desde sempre' },
-          ]}
-          onChange={setPeriod}
-        />
+      <div className="ranking-tabs" role="tablist" aria-label="Seções do ranking">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'board'}
+          className={`ranking-tab ${tab === 'board' ? 'active' : ''}`}
+          onClick={() => setTab('board')}
+        >
+          Placar
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'achievements'}
+          className={`ranking-tab ${tab === 'achievements' ? 'active' : ''}`}
+          onClick={() => setTab('achievements')}
+        >
+          Conquistas
+          {earnedCount !== null && <small>{earnedCount}/12</small>}
+        </button>
       </div>
-      <div className="ranking-caption">
-        <span>{period === 'month' ? month : 'Toda a história do clube'}</span>
-        <span>
-          <Trophy size={14} aria-hidden="true" />{' '}
-          {kind === 'movie' ? 'Filmes vistos' : 'Episódios registrados'}
-        </span>
-      </div>
+      {tab === 'board' && (
+        <>
+          <div className="ranking-controls">
+            <Segmented
+              label="Categoria do ranking"
+              value={kind}
+              options={kinds}
+              onChange={setKind}
+            />
+            <Segmented
+              label="Período do ranking"
+              value={period}
+              options={[
+                { value: 'month', label: 'Este mês' },
+                { value: 'all', label: 'Desde sempre' },
+              ]}
+              onChange={setPeriod}
+            />
+          </div>
+          <div className="ranking-caption">
+            <span>{period === 'month' ? month : 'Toda a história do clube'}</span>
+            <span>
+              <Trophy size={14} aria-hidden="true" />{' '}
+              {kind === 'movie' ? 'Filmes vistos' : 'Episódios registrados'}
+            </span>
+          </div>
+        </>
+      )}
       {ranking.isPending ? (
         <div className="ranking-loading" role="status">
           Preparando o placar…
@@ -136,63 +171,74 @@ export function ClubRankingDialog({
                 Você ocultou o ranking para você. Você continua participando do placar do clube.
               </p>
             )}
-            {!data.entries.some((entry) => entry.count > 0) && (
-              <p className="ranking-notice">
-                {period === 'month'
-                  ? 'O mês está só começando por aqui. Registre seu progresso para abrir o placar.'
-                  : 'Toda história começa com uma sessão. Os primeiros registros vão aparecer aqui.'}
-              </p>
+            {tab === 'board' ? (
+              <>
+                {!data.entries.some((entry) => entry.count > 0) && (
+                  <p className="ranking-notice">
+                    {period === 'month'
+                      ? 'O mês está só começando por aqui. Registre seu progresso para abrir o placar.'
+                      : 'Toda história começa com uma sessão. Os primeiros registros vão aparecer aqui.'}
+                  </p>
+                )}
+                <ol className="ranking-roster" aria-label="Classificação dos participantes">
+                  {data.entries.map((entry) => {
+                    return (
+                      <li
+                        key={entry.id}
+                        className={`ranking-row ${entry.id === member.id ? 'ranking-mine' : ''}`}
+                      >
+                        <span
+                          className={`ranking-position ${entry.position === 1 ? 'ranking-leader' : ''}`}
+                          aria-label={
+                            entry.position === null
+                              ? 'Ainda sem posição'
+                              : `${entry.position}º lugar`
+                          }
+                        >
+                          {entry.position === null ? '—' : String(entry.position).padStart(2, '0')}
+                        </span>
+                        <Avatar member={entry} className="ranking-avatar" />
+                        <div className="ranking-person">
+                          <strong>
+                            {entry.name}
+                            {entry.id === member.id && <small> · você</small>}
+                          </strong>
+                          <MemberBadge badge={entry.featuredBadge} />
+                        </div>
+                        <div className="ranking-score">
+                          <strong>{amount(entry.count, unit[0], unit[1])}</strong>
+                          <small>
+                            {kind === 'movie'
+                              ? amount(entry.rated, 'avaliado', 'avaliados')
+                              : amount(
+                                  entry.seasons,
+                                  'temporada concluída',
+                                  'temporadas concluídas',
+                                )}
+                          </small>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <p className="ranking-collective">
+                  <Users size={16} aria-hidden="true" />
+                  <span>
+                    Entre os participantes,{' '}
+                    {amount(data.clubTitles, 'título diferente', 'títulos diferentes')}{' '}
+                    {period === 'month' ? 'neste mês' : 'desde o começo'}.
+                  </span>
+                </p>
+              </>
+            ) : (
+              <AchievementCollection
+                achievements={data.participation.achievements}
+                selected={data.participation.badge}
+                busy={busy}
+                onChoose={(badge) => void change({ badge })}
+                headingId="ranking-achievements-title"
+              />
             )}
-            <ol className="ranking-roster" aria-label="Classificação dos participantes">
-              {data.entries.map((entry) => {
-                return (
-                  <li
-                    key={entry.id}
-                    className={`ranking-row ${entry.id === member.id ? 'ranking-mine' : ''}`}
-                  >
-                    <span
-                      className={`ranking-position ${entry.position === 1 ? 'ranking-leader' : ''}`}
-                      aria-label={
-                        entry.position === null ? 'Ainda sem posição' : `${entry.position}º lugar`
-                      }
-                    >
-                      {entry.position === null ? '—' : String(entry.position).padStart(2, '0')}
-                    </span>
-                    <Avatar member={entry} className="ranking-avatar" />
-                    <div className="ranking-person">
-                      <strong>
-                        {entry.name}
-                        {entry.id === member.id && <small> · você</small>}
-                      </strong>
-                      <MemberBadge badge={entry.featuredBadge} />
-                    </div>
-                    <div className="ranking-score">
-                      <strong>{amount(entry.count, unit[0], unit[1])}</strong>
-                      <small>
-                        {kind === 'movie'
-                          ? amount(entry.rated, 'avaliado', 'avaliados')
-                          : amount(entry.seasons, 'temporada concluída', 'temporadas concluídas')}
-                      </small>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-            <p className="ranking-collective">
-              <Users size={16} aria-hidden="true" />
-              <span>
-                Entre os participantes,{' '}
-                {amount(data.clubTitles, 'título diferente', 'títulos diferentes')}{' '}
-                {period === 'month' ? 'neste mês' : 'desde o começo'}.
-              </span>
-            </p>
-            <AchievementCollection
-              achievements={data.participation.achievements}
-              selected={data.participation.badge}
-              busy={busy}
-              onChoose={(badge) => void change({ badge })}
-              headingId="ranking-achievements-title"
-            />
             <div className="ranking-participation">
               <label>
                 <input
