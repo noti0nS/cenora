@@ -3,7 +3,13 @@ import type { Context } from 'hono';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { listSchema, normalizeName, importSchema, invitePasswordSchema } from '@cenora/shared';
+import {
+  listSchema,
+  normalizeName,
+  importSchema,
+  invitePasswordSchema,
+  updateClubSchema,
+} from '@cenora/shared';
 import {
   ApiError,
   body,
@@ -22,6 +28,14 @@ import { serveAvatar } from './avatars';
 import { clubAchievements } from './achievements';
 
 export const clubRoutes = new Hono<AppEnv>();
+
+clubRoutes.patch('/', async (c) => {
+  owner(c);
+  const input = await body(c, updateClubSchema);
+  const club = c.get('club');
+  await c.env.DB.prepare('UPDATE clubs SET name=? WHERE id=?').bind(input.name, club.id).run();
+  return c.json({ ...club, name: input.name });
+});
 
 clubRoutes.get('/lists', async (c) => {
   const clubId = c.get('club').id;

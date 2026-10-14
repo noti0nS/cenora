@@ -840,8 +840,13 @@ test('signs in with an email code, creates a club, and switches between clubs', 
     await page.getByRole('button', { name: /Criar, entrar ou trazer/ }).click();
     await page.getByRole('button', { name: 'Criar clube', pressed: false }).click();
     await page.getByLabel('Seu nome no novo clube').fill('Zoe B');
+    await page.getByLabel('Nome do clube').fill('Sessão de Sexta');
     await page.locator('form').getByRole('button', { name: 'Criar clube' }).click();
-    await expect(page.getByText('Clube de Zoe B foi criado.')).toBeVisible();
+    await expect(page.getByText('Sessão de Sexta foi criado.')).toBeVisible();
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    await page.getByLabel('Nome do clube').fill('Clube de Zoe B');
+    await page.getByRole('button', { name: 'Salvar nome' }).click();
+    await expect(page.getByText('O nome do clube foi atualizado.')).toBeVisible();
     await page.getByRole('button', { name: 'Fechar' }).click();
     await expect(page.getByRole('button', { name: 'Perfil de Zoe B' })).toBeVisible();
     await expect(page.locator('.shelf-intro')).toContainText('Nenhum filme na estante');

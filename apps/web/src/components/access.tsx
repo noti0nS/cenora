@@ -34,6 +34,7 @@ import { Landing } from './landing';
 
 const schema = z.object({
   name: displayName,
+  clubName: z.string().trim(),
   code: z.string().trim(),
   recoveryCode: z.string(),
 });
@@ -325,6 +326,7 @@ function ClubGate({
 }) {
   const [view, setView] = useState<'list' | 'new' | 'join'>('list');
   const [name, setName] = useState('');
+  const [clubName, setClubName] = useState('');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -348,9 +350,10 @@ function ClubGate({
     setBusy(true);
     setError('');
     try {
+      const trimmedClubName = clubName.trim();
       const data = await api<{ member: Member; club: Club }>(
         '/auth/create',
-        json('POST', { name }),
+        json('POST', { name, ...(trimmedClubName ? { clubName: trimmedClubName } : {}) }),
       );
       onEnter(data.member, data.club);
     } catch (e) {
@@ -397,6 +400,15 @@ function ClubGate({
               placeholder="Seu nome"
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field label="Nome do clube">
+            <input
+              autoComplete="off"
+              maxLength={60}
+              placeholder={name.trim() ? `Clube de ${name.trim()}` : 'Ex.: Sessão de sexta'}
+              value={clubName}
+              onChange={(e) => setClubName(e.target.value)}
             />
           </Field>
           {error && (
@@ -548,7 +560,7 @@ function Door({
 }) {
   const form = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', code: '', recoveryCode: '' },
+    defaultValues: { name: '', clubName: '', code: '', recoveryCode: '' },
   });
   const [mode, setMode] = useState<DoorMode>('email');
   const [showLanding, setShowLanding] = useState(true);
@@ -650,6 +662,14 @@ function Door({
         onInvite(linked);
         return;
       }
+      if (mode === 'create' && values.clubName.length > 0 && values.clubName.length < 2) {
+        form.setError('clubName', { message: 'Use pelo menos 2 caracteres.' });
+        return;
+      }
+      if (mode === 'create' && values.clubName.length > 60) {
+        form.setError('clubName', { message: 'O nome do clube é longo demais.' });
+        return;
+      }
       if (mode !== 'create' && values.code.length < 12) {
         form.setError('code', { message: 'Confira o código de convite.' });
         return;
@@ -668,7 +688,7 @@ function Door({
         json(
           'POST',
           mode === 'create'
-            ? { name: values.name }
+            ? { name: values.name, ...(values.clubName ? { clubName: values.clubName } : {}) }
             : {
                 name: values.name,
                 token: values.code.trim(),
@@ -870,16 +890,33 @@ function Door({
                   />
                 </Field>
               ) : (
-                <Field label="Como podemos chamar você?">
-                  <input
-                    autoComplete="nickname"
-                    placeholder="Seu nome"
-                    {...form.register('name')}
-                  />
-                  {form.formState.errors.name && (
-                    <span className="field-error">{form.formState.errors.name.message}</span>
+                <>
+                  <Field label="Como podemos chamar você?">
+                    <input
+                      autoComplete="nickname"
+                      placeholder="Seu nome"
+                      {...form.register('name')}
+                    />
+                    {form.formState.errors.name && (
+                      <span className="field-error">{form.formState.errors.name.message}</span>
+                    )}
+                  </Field>
+                  {mode === 'create' && (
+                    <Field label="Nome do clube">
+                      <input
+                        autoComplete="off"
+                        maxLength={60}
+                        placeholder="Ex.: Sessão de sexta"
+                        {...form.register('clubName')}
+                      />
+                      {form.formState.errors.clubName && (
+                        <span className="field-error">
+                          {form.formState.errors.clubName.message}
+                        </span>
+                      )}
+                    </Field>
                   )}
-                </Field>
+                </>
               )}
               {mode !== 'create' && mode !== 'claim' && (
                 <Field

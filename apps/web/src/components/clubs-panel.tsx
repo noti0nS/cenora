@@ -52,6 +52,8 @@ export function ClubsDialog({
   const [joinName, setJoinName] = useState('');
   const [joinPassword, setJoinPassword] = useState('');
   const [createName, setCreateName] = useState('');
+  const [createClubName, setCreateClubName] = useState('');
+  const [clubName, setClubName] = useState('');
   const [bringMode, setBringMode] = useState<'claim' | 'recovery'>('claim');
   const [bringCode, setBringCode] = useState('');
   const [passwordEdit, setPasswordEdit] = useState(false);
@@ -103,10 +105,17 @@ export function ClubsDialog({
       setConfirm(null);
       setCode(null);
       setJoinPassword('');
+      setCreateClubName('');
       setPasswordEdit(false);
       setPasswordValue('');
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && club) {
+      setClubName(club.name);
+    }
+  }, [open, club]);
 
   const refresh = () => {
     for (const key of ['session', 'members', 'lists', 'media', 'counts'])
@@ -171,12 +180,37 @@ export function ClubsDialog({
   const create = (e: React.FormEvent) => {
     e.preventDefault();
     void run(async () => {
+      const trimmedClubName = createClubName.trim();
       const data = await api<{ member: Member; club: Club }>(
         '/auth/create',
-        json('POST', { name: createName }),
+        json('POST', {
+          name: createName,
+          ...(trimmedClubName ? { clubName: trimmedClubName } : {}),
+        }),
       );
       arrived(`${data.club.name} foi criado.`);
       setCreateName('');
+      setCreateClubName('');
+    });
+  };
+  const saveClubName = (e: React.FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      const updated = await api<Club>('/club', json('PATCH', { name: clubName }));
+      setClubName(updated.name);
+      qc.setQueryData<SessionState>(['session'], (old) =>
+        old
+          ? {
+              ...old,
+              club: old.club ? { ...old.club, name: updated.name } : old.club,
+              clubs: old.clubs.map((c) =>
+                c.clubId === updated.id ? { ...c, name: updated.name } : c,
+              ),
+            }
+          : old,
+      );
+      refresh();
+      toast.success('O nome do clube foi atualizado.');
     });
   };
   const bring = (e: React.FormEvent) => {
@@ -387,7 +421,25 @@ export function ClubsDialog({
               onChange={(e) => setCreateName(e.target.value)}
             />
           </Field>
-          <Button type="submit" busy={busy} disabled={createName.trim().length < 2}>
+          <Field label="Nome do clube">
+            <input
+              autoComplete="off"
+              maxLength={60}
+              placeholder={
+                createName.trim() ? `Clube de ${createName.trim()}` : 'Ex.: Sessão de sexta'
+              }
+              value={createClubName}
+              onChange={(e) => setCreateClubName(e.target.value)}
+            />
+          </Field>
+          <Button
+            type="submit"
+            busy={busy}
+            disabled={
+              createName.trim().length < 2 ||
+              (createClubName.trim().length > 0 && createClubName.trim().length < 2)
+            }
+          >
             <Plus size={15} />
             Criar clube
           </Button>
@@ -683,6 +735,25 @@ export function ClubsDialog({
                   )}
                   {tab === 'settings' && isOwner && (
                     <div className="stack">
+                      <form className="stack" onSubmit={saveClubName}>
+                        <Field label="Nome do clube">
+                          <input
+                            required
+                            minLength={2}
+                            maxLength={60}
+                            value={clubName}
+                            onChange={(e) => setClubName(e.target.value)}
+                          />
+                        </Field>
+                        <Button
+                          type="submit"
+                          className="secondary"
+                          busy={busy}
+                          disabled={clubName.trim().length < 2 || clubName.trim() === club.name}
+                        >
+                          Salvar nome
+                        </Button>
+                      </form>
                       <div className="ranking-participation">
                         <label>
                           <input

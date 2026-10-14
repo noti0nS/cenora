@@ -840,14 +840,33 @@ describe('private profile avatars on a real Worker + D1 + R2 runtime', () => {
 describe('private club on a real Worker + D1 runtime', () => {
   it('creates private clubs freely with unique invitation codes and default lists', async () => {
     expect((await lists()).map((l) => l.name)).toEqual(['Filmes', 'Animes', 'Séries']);
-    const second = await request('/auth/create', 'POST', { name: 'Dono' }, '');
+    const second = await request(
+      '/auth/create',
+      'POST',
+      { name: 'Dono', clubName: 'Cineclube de Sexta' },
+      '',
+    );
     expect(second.status).toBe(201);
     const created = (await second.json()) as any;
+    expect(created.club.name).toBe('Cineclube de Sexta');
     expect(created.clubToken).toMatch(/^[a-f0-9]{48}$/);
     expect(created.clubToken).not.toBe(clubToken);
     expect(created.member.id).not.toBe(ownerId);
     expect(((await db.prepare('SELECT COUNT(*) count FROM clubs').first()) as any).count).toBe(2);
     expect((await lists()).map((list) => list.name)).toEqual(['Filmes', 'Animes', 'Séries']);
+    expect(
+      (await request('/auth/create', 'POST', { name: 'Dono', clubName: 'X' }, '')).status,
+    ).toBe(400);
+    const friend = await join('Amigo');
+    expect(
+      (await request('/club', 'PATCH', { name: 'Não autorizado' }, friend.cookie)).status,
+    ).toBe(403);
+    expect((await request('/club', 'PATCH', { name: 'X' })).status).toBe(400);
+    const renamed = await request('/club', 'PATCH', { name: 'Nosso Cineclube' });
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as any).name).toBe('Nosso Cineclube');
+    const session = (await (await request('/auth/session')).json()) as any;
+    expect(session.club.name).toBe('Nosso Cineclube');
   });
   it('requires a session for operational data and rejects cross-origin mutations', async () => {
     expect((await request('/club/lists', 'GET', undefined, '')).status).toBe(401);

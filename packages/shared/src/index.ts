@@ -20,6 +20,11 @@ export const groupLabels: Record<GroupStatus, string> = {
   watched: 'Assistido',
 };
 export const displayName = z.string().trim().min(2, 'Use pelo menos 2 caracteres.').max(40);
+export const clubName = z
+  .string()
+  .trim()
+  .min(2, 'Use pelo menos 2 caracteres.')
+  .max(60, 'O nome do clube é longo demais.');
 export const emailSchema = z
   .string()
   .trim()
@@ -73,6 +78,10 @@ export const recoverySchema = z.object({
 });
 export const createClubSchema = z.object({
   name: displayName,
+  clubName: clubName.optional(),
+});
+export const updateClubSchema = z.object({
+  name: clubName,
 });
 export const listSchema = z.object({
   name: z.string().trim().min(1).max(60),

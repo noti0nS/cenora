@@ -542,7 +542,11 @@ auth.post('/create', async (c) => {
   const session = await resolveSession(c);
   requireUnscoped(session);
   const userId = session?.user?.id ?? id();
-  const club: Club = { id: id(), name: 'Clube de ' + input.name, rankingEnabled: false };
+  const club: Club = {
+    id: id(),
+    name: input.clubName || 'Clube de ' + input.name,
+    rankingEnabled: false,
+  };
   const member: Member = { id: id(), name: input.name, role: 'owner', rankingEnabled: true };
   const recoveryCode = token();
   const clubCode = token();
