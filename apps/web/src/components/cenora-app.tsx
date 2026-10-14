@@ -25,7 +25,6 @@ import {
   Check,
   Clapperboard,
   Tv,
-  Sparkles,
   Moon,
   Sun,
   LogOut,
@@ -47,6 +46,7 @@ import { Dropdown, MenuItem, MenuCheckboxItem, MenuRadioItems, Separator, Button
 import { Access } from './access';
 import { Poster } from './poster';
 import { Wordmark, CarrotMark } from './brand';
+import { ToriiIcon } from './icons';
 import { TitleStage } from './title-stage';
 import { AddMedia } from './add-media';
 import { SettingsDialog } from './settings';
@@ -425,7 +425,7 @@ function App() {
                     {value === 'movie' ? (
                       <Clapperboard size={16} />
                     ) : value === 'anime' ? (
-                      <Sparkles size={16} />
+                      <ToriiIcon size={16} />
                     ) : (
                       <Tv size={16} />
                     )}
