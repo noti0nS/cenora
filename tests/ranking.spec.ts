@@ -6,6 +6,8 @@ test('private ranking: movies, episodes, badges, opt-out, themes and mobile layo
   page,
   browser,
 }) => {
+  // Percurso longo, com capturas de tela: a CI roda cerca de três vezes mais devagar que a máquina local.
+  test.slow();
   const origin = 'http://127.0.0.1:8788';
   const headers = { Origin: origin };
   const errors: string[] = [];
