@@ -107,7 +107,6 @@ const chipsFor = (mine: boolean) =>
       ]
     : [
         ['', 'Todos'],
-        ['planned', 'Na fila'],
         ['watched', 'Vistos'],
       ];
 function useDebounced(value: string) {
@@ -244,6 +243,7 @@ function App() {
       if (mine) p.set('mine', 'true');
       if (q) p.set('q', q);
       if (activeStatus) p.set('status', activeStatus);
+      else p.set('excludeWatched', 'true');
       return api<Page>(`/media?${p}`);
     },
     getNextPageParam: (last) => last.nextOffset ?? undefined,

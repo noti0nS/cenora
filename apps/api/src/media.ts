@@ -150,6 +150,9 @@ mediaRoutes.get('/', async (c) => {
     filters.push('instr(m.normalized_title,?)>0');
     args.push(query);
   }
+  if (!status && c.req.query('excludeWatched') === 'true') {
+    filters.push(mine ? "p.status<>'watched'" : "m.group_status<>'watched'");
+  }
   if (status) {
     if (mine) {
       filters.push('p.status=?');

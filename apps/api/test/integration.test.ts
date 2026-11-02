@@ -1321,6 +1321,50 @@ describe('private club on a real Worker + D1 runtime', () => {
       anime: 0,
     });
   });
+  it.each(['movie', 'tv', 'anime'])(
+    'excludes watched titles from the %s shelf using the selected group or personal scope',
+    async (kind) => {
+      const listId = (await lists())[0].id;
+      const ids: string[] = [];
+      for (const title of ['Group watched', 'Personally watched', 'In progress', 'Untracked']) {
+        const response = await request('/media/manual', 'POST', {
+          title,
+          kind: kind === 'anime' ? 'tv' : kind,
+          isAnime: kind === 'anime',
+          listId,
+        });
+        expect(response.status).toBe(201);
+        ids.push(((await response.json()) as any).id);
+      }
+      await db.prepare("UPDATE media SET group_status='watched' WHERE id=?").bind(ids[0]).run();
+      await db.prepare("UPDATE media SET group_status='watching' WHERE id=?").bind(ids[2]).run();
+      for (const [index, status] of ['want', 'watched', 'watching'].entries()) {
+        expect(
+          (
+            await request(`/media/${ids[index]}/personal`, 'PUT', {
+              status,
+              rating: null,
+              season: null,
+              episode: null,
+              revision: 0,
+            })
+          ).status,
+        ).toBe(200);
+      }
+      const read = async (query: string, cookie = ownerCookie) => {
+        const response = await request(`/media?kind=${kind}&${query}`, 'GET', undefined, cookie);
+        expect(response.status).toBe(200);
+        return ((await response.json()) as any).items.map((item: any) => item.id).sort();
+      };
+      expect(await read('excludeWatched=true')).toEqual(ids.slice(1).sort());
+      expect(await read('mine=true&excludeWatched=true')).toEqual([ids[0], ids[2]].sort());
+      expect(await read('status=watched')).toEqual([ids[0]]);
+      expect(await read('mine=true&status=watched')).toEqual([ids[1]]);
+      expect(await read('')).toEqual([...ids].sort());
+      const other = await createClub('Outro clube');
+      expect(await read('excludeWatched=true', other.cookie)).toEqual([]);
+    },
+  );
   it('separates anime series while keeping anime movies in Filmes and preserving episode tracking', async () => {
     const listId = (await lists())[0].id;
     const add = async (title: string, kind: string, isAnime: boolean) => {
