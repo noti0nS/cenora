@@ -635,6 +635,7 @@ h3,
   max-width: 62ch;
   color: var(--muted);
   line-height: 1.75;
+  text-align: justify;
   overflow-wrap: anywhere;
 }
 .scores {
